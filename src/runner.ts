@@ -15,10 +15,17 @@
  * `status: 'violation'` (subject to `--exit-on`). Review rules produce
  * `status: 'pending'` regardless of accept match.
  *
- * Context window: `match.startLine - DEFAULT_CONTEXT_BUFFER` to
- * `match.endLine + DEFAULT_CONTEXT_BUFFER`. For single-line matches this
- * produces 7 lines; multi-line matches naturally extend because the
- * `endLine` falls past the match's last line.
+ * Context window: `match.startLine - contextBuffer` to
+ * `match.endLine + contextBuffer` (where `contextBuffer` comes from
+ * `RunOptions.contextBuffer`, defaulting to `DEFAULT_CONTEXT_BUFFER`).
+ * For single-line matches this produces `2 * contextBuffer + 1` lines
+ * of context; multi-line matches naturally extend because `endLine`
+ * falls past the match's last line.
+ *
+ * The CLI threads `resolvedConfig.output.contextBuffer` (which the
+ * `STBL_REGENT_OUTPUT_CONTEXT_BUFFER` env var or `.regentrc.ts` may
+ * override) into `RunOptions.contextBuffer`; the default applies when
+ * neither sets it.
  */
 
 import { readFile } from 'node:fs/promises';
@@ -47,6 +54,16 @@ const MAX_FILE_BYTES = 1_000_000; // 1MB cap per file
 export interface RunOptions {
   /** Accept-list from the loader; silences matching pending findings. */
   readonly acceptList?: readonly AcceptEntry[];
+
+  /**
+   * Lines of context to include before/after each match in a finding.
+   * Source for the value is the resolved config
+   * (`output.contextBuffer`), which the env var
+   * `STBL_REGENT_OUTPUT_CONTEXT_BUFFER` may override. Defaults to
+   * `DEFAULT_CONTEXT_BUFFER` (3) when omitted — preserves v0.1/v0.2
+   * behaviour for callers that don't load config.
+   */
+  readonly contextBuffer?: number;
 }
 
 export async function runRules(
@@ -54,6 +71,7 @@ export async function runRules(
   scope: RunnerScope,
   options: RunOptions = {},
 ): Promise<RunResult> {
+  const contextBuffer = options.contextBuffer ?? DEFAULT_CONTEXT_BUFFER;
   const files = await collectFiles(scope);
   const compiled = await Promise.all(
     rules.map(async (entry) => {
@@ -84,7 +102,7 @@ export async function runRules(
   const acceptList = options.acceptList ?? [];
 
   const scanResults = await Promise.all(
-    files.map((file) => scanFile(file, compiled, acceptList)),
+    files.map((file) => scanFile(file, compiled, acceptList, contextBuffer)),
   );
   for (const r of scanResults) {
     if (r === null) {
@@ -280,6 +298,7 @@ async function scanFile(
   file: string,
   compiled: readonly CompiledRuleWithPattern[],
   acceptList: readonly AcceptEntry[],
+  contextBuffer: number,
 ): Promise<{ findings: Finding[] } | null> {
   let content: string;
   try {
@@ -316,7 +335,7 @@ async function scanFile(
         content,
         m.byteOffsetStart,
         m.byteOffsetEnd,
-        DEFAULT_CONTEXT_BUFFER,
+        contextBuffer,
       );
 
       const match: Match = {
