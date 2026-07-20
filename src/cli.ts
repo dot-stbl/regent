@@ -528,13 +528,14 @@ async function runReject(
   pathLine: string,
   options: RejectOptions,
 ): Promise<number> {
-  const cwd = options.config ? joinPath(cwdSafe(options.config)) : cwdSafe(process.cwd());
+  const repoRoot = options.config ?? '.';
   const { path, line } = parseTarget(pathLine);
   if (line === undefined) {
     getLogger().error({}, 'reject requires <path>:<line>, not <path> alone');
     return 2;
   }
-  const rejectionsPath = joinPath(cwd, 'tools', 'audit', '.rejections.json');
+  const rejectionsPath = joinPath(repoRoot, 'tools', 'audit', '.rejections.json');
+  mkdirSync(dirname(rejectionsPath), { recursive: true });
   const current: Array<{ ruleId: string; path: string; line: number }> =
     existsSync(rejectionsPath)
       ? JSON.parse(readFileSync(rejectionsPath, 'utf8'))
@@ -571,10 +572,6 @@ function parseTarget(raw: string): { path: string; line?: number } {
 
 function joinPath(...parts: string[]): string {
   return parts.join('/').replace(/\\/g, '/');
-}
-
-function cwdSafe(input: string): string {
-  return input;
 }
 
 /**
