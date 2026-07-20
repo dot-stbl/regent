@@ -1,0 +1,68 @@
+{
+  "name": "@stbl/regent",
+  "version": "0.1.0",
+  "description": "The enforcer of [.stbl] house rules — grep/regex rule registry for static analysis",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "regent": "./dist/cli.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src/presets",
+    "src/reporter",
+    "README.md",
+    "LICENSE",
+    "assets"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "echo 'lint pending — eslint config in next PR' && exit 0",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "smoke": "bun run build && node dist/cli.js check --help"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "commander": "^12.1.0",
+    "picocolors": "^1.1.0",
+    "re2-wasm": "^1.0.0",
+    "simple-git": "^3.27.0",
+    "tinyglobby": "^0.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.0"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dot-stbl/regent.git"
+  },
+  "bugs": {
+    "url": "https://github.com/dot-stbl/regent/issues"
+  },
+  "keywords": [
+    "linter",
+    "rules",
+    "static-analysis",
+    "grep",
+    "regex",
+    "stbl"
+  ],
+  "homepage": "https://github.com/dot-stbl/regent#readme"
+}

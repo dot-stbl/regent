@@ -1,0 +1,16 @@
+*                 @dot-stbl/regent-maintainers
+
+/src/                          @dot-stbl/regent-maintainers
+/src/presets/                   @dot-stbl/regent-maintainers
+
+# Lockfiles
+/bun.lockb                      @dot-stbl/regent-maintainers
+/package.json                  @dot-stbl/regent-maintainers
+
+# CI + release workflow gating
+/.github/workflows/             @dot-stbl/regent-maintainers
+
+# Brand + publishing metadata
+/assets/                        @dot-stbl/regent-maintainers
+/LICENSE                        @dot-stbl/regent-maintainers
+/package.json                   @dot-stbl/regent-maintainers

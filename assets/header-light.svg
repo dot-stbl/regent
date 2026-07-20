@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- header-light.svg — README header for @stbl/regent on a light surface -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 200" role="img" aria-label="regent by .stbl">
+  <title>regent by .stbl</title>
+  <rect width="1200" height="200" fill="#fff"/>
+  <text x="60" y="125"
+        font-family="'JetBrains Mono', ui-monospace, monospace"
+        font-size="80"
+        font-weight="700"
+        fill="#000"
+        letter-spacing="-3">regent</text>
+  <text x="375" y="125"
+        font-family="'JetBrains Mono', ui-monospace, monospace"
+        font-size="36"
+        font-weight="400"
+        fill="#888"
+        letter-spacing="-1">by</text>
+  <rect x="445" y="98" width="27" height="27" fill="#000"/>
+  <text x="482" y="125"
+        font-family="'JetBrains Mono', ui-monospace, monospace"
+        font-size="80"
+        font-weight="700"
+        fill="#000"
+        letter-spacing="-3">stbl</text>
+</svg>

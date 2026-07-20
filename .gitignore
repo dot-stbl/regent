@@ -1,0 +1,18 @@
+node_modules
+dist
+.DS_Store
+*.log
+.env
+.env.local
+.env.*.local
+coverage
+.vscode/*
+!.vscode/extensions.json
+.idea
+*.tsbuildinfo
+
+# Bun
+.bun
+
+# regent — local overrides (per BRAND.md / stack convention)
+tools/audit/config.local.ts
