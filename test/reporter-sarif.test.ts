@@ -23,7 +23,7 @@ const rule: CompiledRule = {
     source: 'code-shape.md#no-region',
   },
   source: 'code-shape.md#no-region',
-  origin: { kind: 'preset', preset: 'csharp' },
+  origin: { kind: 'repo', path: 'examples/csharp/no-region-directive.lint.ts' },
 };
 
 const finding: Finding = {

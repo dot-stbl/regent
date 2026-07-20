@@ -18,24 +18,25 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { defineRule } from '../src/define-rule.js';
 import { runRules } from '../src/runner.js';
 
-// Test-local rule fixtures — only used here for these 7 strict csharp
-// rules. NOT part of `regent` preset, NOT in `~/.agents/rules/csharp/`.
-import throwVarRule from './rules/csharp/csharp.exceptions.throw-variable.rule.js';
+// Example rules shipped under `examples/csharp/` (NOT auto-loaded by
+// regent — these are public-facing samples an LLM agent can copy via
+// `regent example copy csharp <rule-id>`). Used here as test fixtures.
+import throwVarRule from '../examples/csharp/csharp.exceptions.throw-variable.lint.js';
 import resultBlockingRule
-  from './rules/csharp/csharp.async.result-blocking.rule.js';
+  from '../examples/csharp/csharp.async.result-blocking.lint.js';
 import getAwaiterBlockingRule
-  from './rules/csharp/csharp.async.getawaiter-blocking.rule.js';
+  from '../examples/csharp/csharp.async.getawaiter-blocking.lint.js';
 import discardAssignmentRule
-  from './rules/csharp/csharp.async.discard-assignment.rule.js';
+  from '../examples/csharp/csharp.async.discard-assignment.lint.js';
 import configureAwaitRule
-  from './rules/csharp/csharp.async.configure-await.rule.js';
+  from '../examples/csharp/csharp.async.configure-await.lint.js';
 import privateFieldUnderscoreRule
-  from './rules/csharp/csharp.naming.private-field-underscore.rule.js';
+  from '../examples/csharp/csharp.naming.private-field-underscore.lint.js';
 import bareHttpClientRule
-  from './rules/csharp/csharp.http.bare-httpclient.rule.js';
+  from '../examples/csharp/csharp.http.bare-httpclient.lint.js';
 
 const TEST_DIR = join(tmpdir(), `regent-fixture-${Date.now()}`);
-const FIXTURES_DIR = join(import.meta.dirname ?? __dirname, 'fixtures');
+const FIXTURES_DIR = join(import.meta.dirname ?? __dirname, '..', 'examples', 'csharp', '__fixtures__');
 
 beforeAll(() => {
   mkdirSync(join(TEST_DIR, 'no-region'), { recursive: true });

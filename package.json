@@ -1,7 +1,7 @@
 {
   "name": "@dot-stbl/regent",
-  "version": "0.1.0",
-  "description": "The enforcer of [.stbl] house rules — grep/regex rule registry for static analysis",
+  "version": "0.2.0",
+  "description": "Multi-mode static analysis framework for LLM agents — detect + fix rules, no bundled language packs",
   "license": "MIT",
   "type": "module",
   "bin": {
@@ -17,8 +17,8 @@
   },
   "files": [
     "dist",
-    "src/presets",
     "src/reporter",
+    "examples",
     "README.md",
     "LICENSE",
     "assets"

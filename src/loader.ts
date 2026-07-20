@@ -1,17 +1,19 @@
-/**
- * Loader — merges the four discovery layers into a single rule set.
- *
- * Layers (low → high priority; top wins):
- *   1. Built-in presets (presets subfolder)
- *   2. User-global (`.agents/rules/<cat>/<rule>.rule.ts`)
- *   3. Repository (`tools/audit/<config.ts|rules/<rule>.rule.ts>`)
- *   4. Per-developer (`tools/audit/config.local.ts`, gitignored)
- *
- * Each `.rule.ts` is paired with a sibling `.md`. The `.md` path is
- * auto-derived into `spec.source` when not set explicitly.
- *
- * The loader does NOT execute rules — see `runner.ts`.
- */
+// Loader — merges the discovery layers into a single rule set.
+//
+// Layers (low to high priority; top wins):
+//   1. User-global: HOME/.agents/rules (auto-loaded; legacy + new files)
+//   2. Repository: tools/audit/config.ts and tools/audit/rules/
+//   3. Per-developer: tools/audit/config.local.ts (gitignored)
+//
+// regent ships zero built-in rules. Every rule is authored by the user
+// or agent. Curated examples live under examples/lang/foo.lint.ts and
+// can be pulled in via extends: 'path-to-example' or
+// 'regent example copy <lang> <rule-id>'.
+//
+// Each .lint.ts / .rule.ts file is paired with a sibling .md. The .md
+// path is auto-derived into spec.source when not set explicitly.
+//
+// The loader does NOT execute rules — see runner.ts.
 
 import { existsSync, statSync } from 'node:fs';
 import { isAbsolute, join, resolve, dirname as pathDirname } from 'node:path';
@@ -76,18 +78,7 @@ export async function loadRules(options: LoaderOptions): Promise<LoaderRuleSet> 
   const acceptList: LoadedAcceptEntry[] = [];
   const layers = 0;
 
-  // Layer 1 — built-in presets (always loaded unless explicitly skipped)
-  for (const presetName of ['csharp']) {
-    const presetRules = await loadBuiltInPreset(presetName);
-    for (const rule of presetRules) {
-      if (!seen.has(rule.spec.id)) {
-        allRules.push(rule);
-        seen.add(rule.spec.id);
-      }
-    }
-  }
-
-  // Layer 2 — user-global
+  // Layer 1 — user-global (no built-in presets; regent ships zero rules)
   const userGlobalRoot = options.userGlobalRoot
     ?? join(process.env['HOME'] ?? process.env['USERPROFILE'] ?? '~/.agents', '.agents', 'rules');
   if (existsSync(userGlobalRoot)) {
@@ -162,41 +153,6 @@ export async function loadRules(options: LoaderOptions): Promise<LoaderRuleSet> 
   };
 }
 
-async function loadBuiltInPreset(name: string): Promise<CompiledRule[]> {
-  try {
-    const mod = await import(`./presets/${name}.js`);
-    const candidates = extractRuleSpecs(mod);
-    return candidates.map((spec) => ({
-      spec,
-      source: spec.source ?? `@dot-stbl/regent/presets/${name}`,
-      origin: { kind: 'preset', preset: name },
-    }));
-  } catch {
-    return [];
-  }
-}
-
-function extractRuleSpecs(mod: Record<string, unknown>): RuleSpec[] {
-  const out: RuleSpec[] = [];
-  if (mod['default'] && isRuleSpec(mod['default'])) {
-    out.push(mod['default']);
-  }
-  const exportNames: ReadonlyArray<keyof typeof mod> = ['csharpPreset', 'rules', 'all'];
-  for (const key of exportNames) {
-    const value = mod[key as string];
-    if (Array.isArray(value)) {
-      for (const item of value) {
-        if (isRuleSpec(item)) {
-          out.push(item);
-        }
-      }
-    } else if (isRuleSpec(value)) {
-      out.push(value);
-    }
-  }
-  return out;
-}
-
 function isRuleSpec(value: unknown): value is RuleSpec {
   if (typeof value !== 'object' || value === null) {
     return false;
@@ -216,7 +172,10 @@ async function loadRuleFilesUnder(
     return [];
   }
   const { glob } = await import('tinyglobby');
-  const matches = await glob('**/*.rule.ts', {
+  // v0.2: discover both legacy `.rule.ts` and the new `.lint.ts` (detect).
+  // Fix rules (`.fix.ts`) and transforms (`.transform.ts`) are added in
+  // later phases — for now Phase 1 only handles `.lint.ts` / `.rule.ts`.
+  const matches = await glob('**/*.{lint,rule}.ts', {
     cwd: root,
     absolute: true,
     onlyFiles: true,
@@ -228,7 +187,9 @@ async function loadRuleFilesUnder(
     if (spec === undefined) {
       continue;
     }
-    const siblingMd = absPath.replace(/\.rule\.ts$/, '.md');
+    // Strip either `.lint.ts` or `.rule.ts` to find the sibling `.md`.
+    const baseName = absPath.replace(/\.(lint|rule)\.ts$/, '');
+    const siblingMd = `${baseName}.md`;
     const source = spec.source ?? (existsSync(siblingMd) ? siblingMd : absPath);
     rules.push({
       spec,
@@ -305,9 +266,12 @@ async function resolveExtends(
     }
 
     if (item.startsWith('@dot-stbl/regent/presets/')) {
-      const presetName = item.replace('@dot-stbl/regent/presets/', '').replace(/\.ts$/, '');
-      rules.push(...await loadBuiltInPreset(presetName));
-      continue;
+      // regent v0.2 removed all built-in presets. Surface a clear error
+      // instead of silently loading nothing.
+      throw new Error(
+        `regent: built-in presets are removed in v0.2 — '${item}' is no longer valid. `
+        + `Use \`regent llm examples <lang>\` to find curated rules, or \`extends: '<path-to-example>'\` to load them.`,
+      );
     }
 
     const abs = resolvePath(item, repoRoot);
@@ -316,7 +280,7 @@ async function resolveExtends(
     }
     const stat = statSync(abs);
 
-    if (stat.isFile() && abs.endsWith('.rule.ts')) {
+    if (stat.isFile() && (abs.endsWith('.rule.ts') || abs.endsWith('.lint.ts'))) {
       const spec = await importRuleFile(abs);
       if (spec) {
         rules.push({
@@ -333,14 +297,15 @@ async function resolveExtends(
       continue;
     }
 
-    // glob pattern
+    // glob pattern — accept both extensions
     const { glob } = await import('tinyglobby');
-    const matches = await glob(abs.endsWith('/**') ? abs + '/*.rule.ts' : abs, {
+    const globPattern = abs.endsWith('/**') ? abs + '/*.{lint,rule}.ts' : abs;
+    const matches = await glob(globPattern, {
       absolute: true,
       onlyFiles: true,
     });
     for (const match of matches) {
-      if (match.endsWith('.rule.ts')) {
+      if (match.endsWith('.rule.ts') || match.endsWith('.lint.ts')) {
         const spec = await importRuleFile(match);
         if (spec) {
           rules.push({
@@ -375,6 +340,24 @@ function applyConfigOptions(
   kind: Exclude<RuleOrigin['kind'], 'preset'>,
   configPath: string,
 ): void {
+  // Order matters: add must run BEFORE disable/override so that rules
+  // defined in this config layer can be referenced by them. (Earlier
+  // versions processed disable/override first, which silently no-op'd
+  // any disable/override targeting an `add` rule.)
+  for (const spec of config.rules?.add ?? []) {
+    if (!isRuleSpec(spec)) {
+      continue;
+    }
+    if (seen.has(spec.id)) {
+      continue;
+    }
+    rules.push({
+      spec,
+      source: spec.source ?? configPath,
+      origin: { kind, path: configPath },
+    });
+    seen.add(spec.id);
+  }
   for (const id of config.rules?.disable ?? []) {
     const idx = rules.findIndex((r) => r.spec.id === id);
     if (idx !== -1) {
@@ -392,20 +375,6 @@ function applyConfigOptions(
       ...existing,
       spec: applyOverride(existing.spec, override),
     };
-  }
-  for (const spec of config.rules?.add ?? []) {
-    if (!isRuleSpec(spec)) {
-      continue;
-    }
-    if (seen.has(spec.id)) {
-      continue;
-    }
-    rules.push({
-      spec,
-      source: spec.source ?? configPath,
-      origin: { kind, path: configPath },
-    });
-    seen.add(spec.id);
   }
 }
 

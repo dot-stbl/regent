@@ -14,11 +14,29 @@ const REPO = join(tmpdir(), `regent-cli-smoke-${Date.now()}`);
 const CLI = join(import.meta.dirname, '..', 'dist', 'cli.js');
 
 beforeAll(async () => {
-  mkdirSync(REPO, { recursive: true });
+  mkdirSync(join(REPO, 'tools', 'audit'), { recursive: true });
   // We need to wait for build before this test runs.
   writeFileSync(
     join(REPO, 'Bad.cs'),
     `public class A {\n    #region\n    int x;\n    #endregion\n}\n`,
+  );
+  // v0.2: regent ships zero built-in rules. Provide a config that adds
+  // a simple no-#region rule so the smoke tests have something to fire.
+  writeFileSync(
+    join(REPO, 'tools', 'audit', 'config.js'),
+    `export default {
+  rules: {
+    add: [
+      {
+        id: 'smoke.no-region',
+        severity: 'error',
+        pattern: '\\\\s*#region\\\\b',
+        globs: ['**/*.cs'],
+        message: 'no #region',
+      },
+    ],
+  },
+};`,
   );
 });
 
@@ -66,32 +84,27 @@ describe('cli (smoke)', () => {
   it('check: emits SARIF when --format sarif', async () => {
     const r = await runCli(['check', '--all', '--format', 'sarif']);
     expect(r.stdout).toContain('"version": "2.1.0"');
-    expect(r.stdout).toContain('csharp.no-region-directive');
+    expect(r.stdout).toContain('smoke.no-region');
   });
 
   it('check: exits 1 on findings (no clean input)', async () => {
     const r = await runCli(['check', '--all']);
     expect(r.code).toBe(1);
-    expect(r.stdout).toContain('csharp.no-region-directive');
+    expect(r.stdout).toContain('smoke.no-region');
   });
 
-  it('list: prints at least the csharp preset rules', async () => {
+  it('list: prints loaded rules', async () => {
     const r = await runCli(['list']);
-    expect(r.stdout).toContain('csharp.no-region-directive');
-    expect(r.stdout).toContain('csharp.no-private-methods');
+    expect(r.stdout).toContain('smoke.no-region');
   });
 
   it('explain: shows rule metadata', async () => {
-    const r = await runCli(['explain', 'csharp.no-region-directive']);
-    expect(r.stdout).toContain('csharp.no-region-directive');
-    expect(r.stdout).toContain('Source:');
+    const r = await runCli(['explain', 'smoke.no-region']);
+    expect(r.stdout).toContain('smoke.no-region');
   });
 
-  it('init: creates tools/audit/ scaffolding', async () => {
-    const r = await runCli(['init']);
-    expect(r.code).toBe(0);
-    expect(r.stdout).toContain('created');
-  });
+  // init behaviour is exercised in test/cli-roundtrip.test.ts (which
+  // uses a fresh tmpdir per run).
 
   void execFile;
 });

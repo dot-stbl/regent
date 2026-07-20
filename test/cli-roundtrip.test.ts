@@ -59,7 +59,9 @@ describe('cli round-trip: init', () => {
 
     const content = readFileSync(configPath, 'utf8');
     expect(content).toContain('defineConfig');
-    expect(content).toContain("extends: ['@dot-stbl/regent/presets/csharp']");
+    // v0.2: regent ships zero rules; init scaffolds an empty config.
+    expect(content).not.toContain('@dot-stbl/regent/presets/');
+    expect(content).not.toContain('extends:');
   });
 
   it('refuses to overwrite existing tools/audit/', async () => {
@@ -72,7 +74,7 @@ describe('cli round-trip: init', () => {
 describe('cli round-trip: accept', () => {
   it('writes config.local.ts with the new accept entry', async () => {
     const r = await runCli([
-      'accept', 'csharp.no-todo-without-owner', 'src/Foo.cs',
+      'accept', 'smoke.no-todo', 'src/Foo.cs',
       '--reason', 'tracked in JIRA-123',
     ]);
     expect(r.code).toBe(0);
@@ -82,14 +84,14 @@ describe('cli round-trip: accept', () => {
     expect(existsSync(localPath)).toBe(true);
 
     const content = readFileSync(localPath, 'utf8');
-    expect(content).toContain('csharp.no-todo-without-owner');
+    expect(content).toContain('smoke.no-todo');
     expect(content).toContain('src/Foo.cs');
     expect(content).toContain('tracked in JIRA-123');
   });
 
   it('refuses to write without --reason', async () => {
     const r = await runCli([
-      'accept', 'csharp.no-todo-without-owner', 'src/Bar.cs',
+      'accept', 'smoke.no-todo', 'src/Bar.cs',
     ]);
     // Commander's requiredOption triggers before action handler — exit
     // code 1 (Commander default for usage errors). The action-level
@@ -106,7 +108,7 @@ describe('cli round-trip: accept', () => {
     );
 
     const r = await runCli([
-      'accept', 'csharp.no-region-directive', 'src/Baz.cs',
+      'accept', 'smoke.no-region', 'src/Baz.cs',
       '--reason', 'historical file, see docs/migration.md',
     ]);
     expect(r.code).toBe(0);
@@ -115,8 +117,8 @@ describe('cli round-trip: accept', () => {
       join(REPO, 'tools', 'audit', 'config.local.ts'),
       'utf8',
     );
-    expect(after).toContain('csharp.no-todo-without-owner'); // previous entry preserved
-    expect(after).toContain('csharp.no-region-directive'); // new entry added
+    expect(after).toContain('smoke.no-todo'); // previous entry preserved
+    expect(after).toContain('smoke.no-region'); // new entry added
     expect(after.length).toBeGreaterThan(before.length);
   });
 });
@@ -124,7 +126,7 @@ describe('cli round-trip: accept', () => {
 describe('cli round-trip: reject', () => {
   it('writes .rejections.json with the rejection entry', async () => {
     const r = await runCli([
-      'reject', 'csharp.no-private-methods', 'src/Foo.cs:42',
+      'reject', 'smoke.no-private-methods', 'src/Foo.cs:42',
     ]);
     expect(r.code).toBe(0);
     expect(r.stdout).toContain('added rejection');
@@ -133,14 +135,14 @@ describe('cli round-trip: reject', () => {
     expect(existsSync(rejectionsPath)).toBe(true);
 
     const content = readFileSync(rejectionsPath, 'utf8');
-    expect(content).toContain('csharp.no-private-methods');
+    expect(content).toContain('smoke.no-private-methods');
     expect(content).toContain('src/Foo.cs');
     expect(content).toContain('42');
   });
 
   it('refuses to reject without line number', async () => {
     const r = await runCli([
-      'reject', 'csharp.no-private-methods', 'src/Bar.cs',
+      'reject', 'smoke.no-private-methods', 'src/Bar.cs',
     ]);
     expect(r.code).toBe(2);
     expect(r.stderr).toContain('reject requires <path>:<line>');
@@ -148,7 +150,7 @@ describe('cli round-trip: reject', () => {
 
   it('accumulates multiple rejections (no duplicates)', async () => {
     const r = await runCli([
-      'reject', 'csharp.no-private-methods', 'src/Foo.cs:99',
+      'reject', 'smoke.no-private-methods', 'src/Foo.cs:99',
     ]);
     expect(r.code).toBe(0);
 
@@ -159,7 +161,7 @@ describe('cli round-trip: reject', () => {
     expect(after).toContain('99'); // new entry added
 
     // Re-running with same params: no duplicate
-    await runCli(['reject', 'csharp.no-private-methods', 'src/Foo.cs:99']);
+    await runCli(['reject', 'smoke.no-private-methods', 'src/Foo.cs:99']);
     const final = readFileSync(
       join(REPO, 'tools', 'audit', '.rejections.json'),
       'utf8',

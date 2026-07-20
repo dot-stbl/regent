@@ -553,7 +553,6 @@ function runInit(): void {
     `import { defineConfig } from '@dot-stbl/regent';
 
 export default defineConfig({
-  extends: ['@dot-stbl/regent/presets/csharp'],
   rules: {
     disable: [],
     override: {},
@@ -568,7 +567,7 @@ export default defineConfig({
   writeFileSync(`${auditDir}/rules/.gitkeep`, '', 'utf8');
 
   console.log(pc.green(`✓ created ${auditDir}/`));
-  console.log(pc.dim('  Edit config.ts to extends more presets or add repo rules.'));
+  console.log(pc.dim('  regent ships zero rules. Browse curated examples with `regent llm examples <lang>` or copy via `regent example copy <lang> <rule-id>`.'));
 }
 
 function shouldUseColor(options: { color?: unknown }): boolean {
