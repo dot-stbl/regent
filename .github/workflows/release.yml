@@ -30,12 +30,14 @@ jobs:
       - name: Install
         run: bun install --frozen-lockfile
 
+      - name: Build
+        run: bun run build
+
       - name: Build + test + lint gate
         run: |
           bun run typecheck
           bun run lint
           bun test
-          bun run build
 
       - name: Extract version from tag
         id: version

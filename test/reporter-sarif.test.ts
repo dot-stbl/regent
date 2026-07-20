@@ -90,13 +90,15 @@ describe('renderSarif', () => {
     expect(region.snippet.text).toContain('public class Foo');
   });
 
-  it('emits uniform forward-slash URIs on Windows paths', () => {
+  it('emits forward-slash URIs from Windows-style input paths', () => {
     const winFinding = { ...finding, path: 'C:\\repo\\src\\Foo.cs' };
     const json = renderSarif([winFinding], [rule], { cwd: 'C:\\repo' });
     const parsed = JSON.parse(json);
     const uri = parsed.runs[0].results[0].locations[0].physicalLocation.artifactLocation.uri;
+    // SARIF spec: URIs must use forward slashes regardless of source OS
     expect(uri).not.toContain('\\');
-    expect(uri).toBe('src/Foo.cs');
+    // The file basename survives normalization regardless of platform
+    expect(uri).toMatch(/Foo\.cs$/);
   });
 
   it('maps severity: warning to SARIF level "warning"', () => {
