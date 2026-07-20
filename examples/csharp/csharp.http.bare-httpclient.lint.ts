@@ -4,7 +4,7 @@
  * Mirrors `http-resilience-refit.md#never-new-httpclient`. Use as a template
  * for framework-bypass detection rules.
  */
-import { defineRule } from '../../src/define-rule.js';
+import { defineRule } from '@dot-stbl/regent';
 
 export default defineRule({
   id: 'csharp.http.bare-httpclient',

@@ -5,7 +5,7 @@
  * for similar async rules in your project. Browse all C# examples via
  * `regent llm examples csharp`.
  */
-import { defineRule } from '../../src/define-rule.js';
+import { defineRule } from '@dot-stbl/regent';
 
 export default defineRule({
   id: 'csharp.async.configure-await',
