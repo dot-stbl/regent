@@ -4,7 +4,6 @@
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { defineConfig, defineRule } from '../src/index.js';
 import { loadRules } from '../src/loader.js';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';

@@ -3,7 +3,6 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { defineRule } from '../src/define-rule.js';
 import type { AcceptEntry, Finding } from '../src/types.js';
 import { renderReview, renderReviewJson } from '../src/reporter/review.js';
 
