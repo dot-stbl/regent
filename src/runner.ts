@@ -83,93 +83,15 @@ export async function runRules(
   let scannedFiles = 0;
   const acceptList = options.acceptList ?? [];
 
-  for (const file of files) {
-    let content: string;
-    try {
-      const buf = await readFile(file);
-      if (buf.byteLength > MAX_FILE_BYTES) {
-        continue;
-      }
-      content = buf.toString('utf8');
-    } catch {
+  const scanResults = await Promise.all(
+    files.map((file) => scanFile(file, compiled, acceptList)),
+  );
+  for (const r of scanResults) {
+    if (r === null) {
       continue;
     }
-
     scannedFiles++;
-
-    const fileLines = content.split('\n');
-    const lineOffsets = computeLineOffsets(fileLines);
-
-    for (const ruleEntry of compiled) {
-      if (!matchesScopePattern(ruleEntry.spec, file)) {
-        continue;
-      }
-      if (matchesExcludePath(ruleEntry.spec.excludePaths, file)) {
-        continue;
-      }
-
-      const findingsFromFile = scanLineByLine(
-        ruleEntry.pattern,
-        ruleEntry.exclude,
-        lineOffsets,
-        content,
-      );
-
-      for (const m of findingsFromFile) {
-        const window = extractContext(
-          content,
-          m.byteOffsetStart,
-          m.byteOffsetEnd,
-          DEFAULT_CONTEXT_BUFFER,
-        );
-
-        const match: Match = {
-          startLine: m.lineIndex,
-          startColumn: 0,
-          endLine: m.lineIndex,
-          endColumn: m.line.length,
-          matchText: m.line,
-        };
-
-        const isReview = ruleEntry.spec.review?.enabled === true;
-        const exitBehavior = ruleEntry.spec.review?.exitBehavior ?? 'no-fail';
-        const guidance = ruleEntry.spec.review?.guidance;
-
-        // Accept-list match — drops the finding (records reason for audit).
-        const acceptHit = !isReview
-          ? null
-          : findAcceptMatch(acceptList, ruleEntry.spec.id, file, m.lineIndex + 1);
-
-        const status: Finding['status'] = acceptHit
-          ? 'accepted'
-          : isReview
-            ? 'pending'
-            : 'violation';
-
-        const finding: Finding = {
-          ruleId: ruleEntry.spec.id,
-          severity: ruleEntry.spec.severity,
-          path: file,
-          match,
-          context: window,
-          message: ruleEntry.spec.message,
-          source: ruleEntry.source,
-          rationale: ruleEntry.spec.rationale,
-          status,
-          ...(isReview
-            ? {
-                review: {
-                  ...(guidance !== undefined ? { guidance } : {}),
-                  exitBehavior,
-                },
-              }
-            : {}),
-          ...(acceptHit ? { acceptedReason: acceptHit.reason } : {}),
-        };
-
-        findings.push(finding);
-      }
-    }
+    findings.push(...r.findings);
   }
 
   return {
@@ -330,6 +252,122 @@ interface LineMatch {
   readonly line: string;
   readonly byteOffsetStart: number;
   readonly byteOffsetEnd: number;
+}
+
+/**
+ * The runner compiles each rule's `pattern` / `excludeWhen` exactly
+ * once via RE2, then reuses the compiled matchers across every file.
+ * This internal shape carries the compiled matchers alongside the
+ * spec + origin so `scanFile` can apply them without re-compiling.
+ */
+interface CompiledRuleWithPattern {
+  readonly spec: RuleSpec;
+  readonly source: string;
+  readonly origin: RuleOrigin;
+  readonly pattern: RegexMatcher;
+  readonly exclude: RegexMatcher | null;
+}
+
+/**
+ * Scan a single file against all rules. Returns null when the file is
+ * unreadable or oversized — caller increments the scanned counter only
+ * for successful reads.
+ *
+ * Phase 6: per-file work runs in parallel via `Promise.all(files.map(scanFile))`
+ * — I/O concurrency uses Node's libuv threadpool.
+ */
+async function scanFile(
+  file: string,
+  compiled: readonly CompiledRuleWithPattern[],
+  acceptList: readonly AcceptEntry[],
+): Promise<{ findings: Finding[] } | null> {
+  let content: string;
+  try {
+    const buf = await readFile(file);
+    if (buf.byteLength > MAX_FILE_BYTES) {
+      return null;
+    }
+    content = buf.toString('utf8');
+  } catch {
+    return null;
+  }
+
+  const findings: Finding[] = [];
+  const fileLines = content.split('\n');
+  const lineOffsets = computeLineOffsets(fileLines);
+
+  for (const ruleEntry of compiled) {
+    if (!matchesScopePattern(ruleEntry.spec, file)) {
+      continue;
+    }
+    if (matchesExcludePath(ruleEntry.spec.excludePaths, file)) {
+      continue;
+    }
+
+    const findingsFromFile = scanLineByLine(
+      ruleEntry.pattern,
+      ruleEntry.exclude,
+      lineOffsets,
+      content,
+    );
+
+    for (const m of findingsFromFile) {
+      const window = extractContext(
+        content,
+        m.byteOffsetStart,
+        m.byteOffsetEnd,
+        DEFAULT_CONTEXT_BUFFER,
+      );
+
+      const match: Match = {
+        startLine: m.lineIndex,
+        startColumn: 0,
+        endLine: m.lineIndex,
+        endColumn: m.line.length,
+        matchText: m.line,
+      };
+
+      const isReview = ruleEntry.spec.review?.enabled === true;
+      const exitBehavior = ruleEntry.spec.review?.exitBehavior ?? 'no-fail';
+      const guidance = ruleEntry.spec.review?.guidance;
+
+      // Accept-list match — drops the finding (records reason for audit).
+      const acceptHit = !isReview
+        ? null
+        : findAcceptMatch(acceptList, ruleEntry.spec.id, file, m.lineIndex + 1);
+
+      const status: Finding['status'] = acceptHit
+        ? 'accepted'
+        : isReview
+          ? 'pending'
+          : 'violation';
+
+      const finding: Finding = {
+        ruleId: ruleEntry.spec.id,
+        severity: ruleEntry.spec.severity,
+        path: file,
+        match,
+        context: window,
+        message: ruleEntry.spec.message,
+        source: ruleEntry.source,
+        rationale: ruleEntry.spec.rationale,
+        status,
+        ...(isReview
+          ? {
+              review: {
+                ...(guidance !== undefined ? { guidance } : {}),
+                exitBehavior,
+              },
+            }
+          : {}),
+        ...(acceptHit ? { acceptedReason: acceptHit.reason } : {}),
+      };
+
+      findings.push(finding);
+    }
+  }
+
+  return { findings };
 }
 
 /**
