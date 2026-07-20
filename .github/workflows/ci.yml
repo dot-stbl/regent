@@ -52,14 +52,16 @@ jobs:
       - name: Smoke
         run: node dist/cli.js check --help
 
-  # Phase 14: benchmark gate. Establishes a baseline on first run
-  # (the benchmark module writes .regent/baseline.json); subsequent
-  # runs fail when median latency regresses by more than 50%.
+  # Benchmark gate. The benchmark module establishes a baseline on the
+  # first run (writes .regent/baseline.json, baselineDeltaPct = null) and
+  # compares against it on later runs. The checkout never contains the
+  # baseline, so it is persisted across runs via actions/cache. The gate
+  # fails only on a real median regression of more than 50%.
   benchmark:
     runs-on: ubuntu-latest
     needs: test
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: recursive
 
@@ -69,7 +71,7 @@ jobs:
           bun-version: ${{ env.BUN_VERSION }}
 
       - name: Cache dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             node_modules
@@ -84,23 +86,39 @@ jobs:
       - name: Build
         run: bun run build
 
+      # Carry the baseline forward across runs. A fresh unique key is
+      # written each run; restore-keys grabs the most recent prior one.
+      - name: Restore benchmark baseline
+        uses: actions/cache/restore@v6
+        with:
+          path: .regent/baseline.json
+          key: regent-bench-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            regent-bench-${{ runner.os }}-
+
       - name: Run benchmark
         id: bench
         # 200 files × 30 rules × 3 iterations — moderate workload, fast
-        # enough for CI (~5-10s on ubuntu-latest), sensitive enough
-        # to catch real regressions.
+        # enough for CI, sensitive enough to catch real regressions.
         run: |
-          RESULT=$(node dist/cli.js benchmark \
-            --files 200 --rules 30 --iterations 3)
+          RESULT=$(node dist/cli.js benchmark --files 200 --rules 30 --iterations 3)
           echo "$RESULT"
-          # Fail if median regresses by more than 50% vs the
-          # committed baseline. The benchmark module writes a fresh
-          # baseline on first run; subsequent runs compare.
-          DELTA=$(echo "$RESULT" | python3 -c "import json,sys; d=json.load(sys.stdin).get('baselineDeltaPct'); print('inf' if d is None else d)")
-          if [ "$DELTA" = "inf" ] || [ "$(echo "$DELTA > 50" | bc -l)" = "1" ]; then
-            echo "::error::benchmark regressed: ${DELTA}%"
+          DELTA=$(echo "$RESULT" | python3 -c "import json,sys; d=json.load(sys.stdin).get('baselineDeltaPct'); print('' if d is None else d)")
+          if [ -z "$DELTA" ]; then
+            echo "No baseline yet — established one; regression gate skipped this run."
+          elif awk "BEGIN { exit !($DELTA > 50) }"; then
+            echo "::error::benchmark regressed by ${DELTA}% (budget: 50%)"
             exit 1
+          else
+            echo "benchmark median delta ${DELTA}% (within 50% budget)"
           fi
+
+      - name: Save benchmark baseline
+        if: always()
+        uses: actions/cache/save@v6
+        with:
+          path: .regent/baseline.json
+          key: regent-bench-${{ runner.os }}-${{ github.run_id }}
 
       - name: Upload benchmark result
         if: always()
