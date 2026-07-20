@@ -146,7 +146,14 @@ export function buildEnvConfig(): RegentConfig | null {
   void env;
 
   const candidate = {
-    rules: { detect: [], fix: [] },
+    rules: {
+      detect: [],
+      fix: [],
+      extends: [],
+      disable: [],
+      override: {},
+      accept: [],
+    },
     excludePaths: [],
     excludeGroups: {},
     cache,

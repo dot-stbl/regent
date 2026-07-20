@@ -99,13 +99,46 @@ const ExcludeGroupsSchema = z.record(
   z.array(GlobStringSchema).readonly(),
 );
 
+const AcceptEntrySchema = z
+  .object({
+    ruleId: z.string().min(1),
+    path: z.string().min(1),
+    line: z.number().int().positive().optional(),
+    reason: z.string().min(1).max(500),
+  })
+  .strict();
+
+const RuleOverrideSchema = z
+  .object({
+    severity: SeveritySchema.optional(),
+    message: z.string().min(1).optional(),
+  })
+  .strict();
+
 const RulesSectionSchema = z
   .object({
     detect: z.array(DetectRuleSpecSchema).readonly().default([]),
     fix: z.array(FixRuleSpecSchema).readonly().default([]),
+    // `extends` accepts paths, globs, or arrays of inline rules.
+    // Resolution semantics are unchanged from v0.1; the schema just
+    // surfaces the union type.
+    extends: z
+      .array(z.union([z.string().min(1), z.array(z.unknown()).readonly()]))
+      .readonly()
+      .default([]),
+    disable: z.array(z.string().min(1)).readonly().default([]),
+    override: z.record(z.string().min(1), RuleOverrideSchema).default({}),
+    accept: z.array(AcceptEntrySchema).readonly().default([]),
   })
   .strict()
-  .default({ detect: [], fix: [] });
+  .default({
+    detect: [],
+    fix: [],
+    extends: [],
+    disable: [],
+    override: {},
+    accept: [],
+  });
 
 export const RegentConfigSchema = z
   .object({
@@ -136,7 +169,14 @@ export const RegentConfigSchema = z
   })
   .strict()
   .default({
-    rules: { detect: [], fix: [] },
+    rules: {
+      detect: [],
+      fix: [],
+      extends: [],
+      disable: [],
+      override: {},
+      accept: [],
+    },
     excludePaths: [],
     excludeGroups: {},
     cache: { enabled: true, maxBytes: 100 * 1024 * 1024 },

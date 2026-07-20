@@ -58,7 +58,14 @@ export function buildArgsConfig(args: CliArgs): RegentConfig | null {
   }
 
   const candidate = {
-    rules: { detect: [], fix: [] },
+    rules: {
+      detect: [],
+      fix: [],
+      extends: [],
+      disable: [],
+      override: {},
+      accept: [],
+    },
     excludePaths: [],
     excludeGroups: {},
     cache,

@@ -16,14 +16,15 @@ import { tmpdir } from 'node:os';
 const TEST_CWD = join(tmpdir(), `regent-loader-${Date.now()}`);
 
 beforeAll(async () => {
-  mkdirSync(join(TEST_CWD, 'tools', 'audit'), { recursive: true });
+  mkdirSync(TEST_CWD, { recursive: true });
 
-  // Config with `add` only — confirms rules from config are loaded.
+  // Config with inline rules only — confirms rules from config are
+  // loaded via the new loadConfig() pipeline (.regentrc.js).
   writeFileSync(
-    join(TEST_CWD, 'tools', 'audit', 'config.js'),
+    join(TEST_CWD, '.regentrc.js'),
     `export default {
   rules: {
-    add: [
+    detect: [
       {
         id: 'tessera.no-region-directive',
         severity: 'error',
@@ -51,15 +52,13 @@ beforeAll(async () => {
   );
 
   // Separate config in its own subdir for disable/override testing.
-  // The order is: add first, then disable/override (so add-defined rules
-  // can be referenced).
   const SUBCWD = join(TEST_CWD, 'sub');
-  mkdirSync(join(SUBCWD, 'tools', 'audit'), { recursive: true });
+  mkdirSync(SUBCWD, { recursive: true });
   writeFileSync(
-    join(SUBCWD, 'tools', 'audit', 'config.js'),
+    join(SUBCWD, '.regentrc.js'),
     `export default {
   rules: {
-    add: [
+    detect: [
       {
         id: 'tessera.no-region-directive',
         severity: 'error',
@@ -88,14 +87,19 @@ afterAll(() => {
 
 describe('loadRules', () => {
   it('loads no rules when no config and no examples exist', async () => {
-    const result = await loadRules({
-      repoRoot: join(TEST_CWD, 'fake'),
-      skipLocal: true,
-    });
-    expect(result.rules).toHaveLength(0);
+    // Use a fully-isolated tmpdir so cosmiconfig walks up find no
+    // .regentrc anywhere up to root.
+    const isolated = join(tmpdir(), `regent-loader-empty-${Date.now()}`);
+    mkdirSync(isolated, { recursive: true });
+    try {
+      const result = await loadRules({ repoRoot: isolated, skipLocal: true });
+      expect(result.rules).toHaveLength(0);
+    } finally {
+      rmSync(isolated, { recursive: true, force: true });
+    }
   });
 
-  it('loads rules from repo config (add)', async () => {
+  it('loads rules from repo config (detect)', async () => {
     const result = await loadRules({ repoRoot: TEST_CWD, skipLocal: true });
     const ids = result.rules.map((r) => r.spec.id);
     expect(ids).toContain('tessera.sample-rule');

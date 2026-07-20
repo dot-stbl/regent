@@ -38,6 +38,17 @@ export function mergeConfigs(layers: readonly RegentConfig[]): RegentConfig {
   const detectById = new Map<string, DetectRuleSpec>();
   const fixById = new Map<string, FixRuleSpec>();
 
+  const extendsList: Array<string | readonly unknown[]> = [];
+  const disableSet = new Set<string>();
+  const overrideMap = new Map<string, { severity?: 'error' | 'warning' | 'suggestion'; message?: string }>();
+  const acceptList: Array<{
+    ruleId: string;
+    path: string;
+    line?: number;
+    reason: string;
+    origin: 'repo' | 'local';
+  }> = [];
+
   const excludePaths: string[] = [];
   const excludePathsSeen = new Set<string>();
 
@@ -67,6 +78,31 @@ export function mergeConfigs(layers: readonly RegentConfig[]): RegentConfig {
     // rules.fix — last-wins by id
     for (const r of layer.rules.fix) {
       fixById.set(r.id, r);
+    }
+
+    // rules.extends — concatenate (order preserved; later wins for
+    // overlapping paths in the resolver)
+    for (const e of layer.rules.extends as readonly (string | readonly unknown[])[]) {
+      extendsList.push(e);
+    }
+
+    // rules.disable — union (collect all ids; applied at load time)
+    for (const id of layer.rules.disable) {
+      disableSet.add(id);
+    }
+
+    // rules.override — last-wins by id
+    for (const [id, ov] of Object.entries(layer.rules.override)) {
+      const ovRaw = ov as { severity?: string; message?: string };
+      overrideMap.set(id, {
+        ...(ovRaw.severity !== undefined ? { severity: ovRaw.severity as 'error' | 'warning' | 'suggestion' } : {}),
+        ...(ovRaw.message !== undefined ? { message: ovRaw.message } : {}),
+      });
+    }
+
+    // rules.accept — union; origin = 'repo' for project-level entries
+    for (const entry of layer.rules.accept) {
+      acceptList.push({ ...entry, origin: 'repo' });
     }
 
     // excludePaths — concat + dedup + expand groups
@@ -131,6 +167,10 @@ export function mergeConfigs(layers: readonly RegentConfig[]): RegentConfig {
     rules: {
       detect: [...detectById.values()],
       fix: [...fixById.values()],
+      extends: extendsList,
+      disable: [...disableSet],
+      override: Object.fromEntries(overrideMap) as Record<string, { severity?: 'error' | 'warning' | 'suggestion'; message?: string }>,
+      accept: acceptList.map(({ origin: _origin, ...rest }) => rest),
     },
     excludePaths,
     excludeGroups,

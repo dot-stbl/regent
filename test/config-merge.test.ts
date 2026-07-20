@@ -10,18 +10,23 @@ import type { RegentConfig } from '../src/config/schema.js';
 import { BUILTIN_EXCLUDE_GROUPS } from '../src/config/groups.js';
 
 function layer(partial: Partial<RegentConfig>): RegentConfig {
+  const def = defaultConfig();
   return {
-    ...defaultConfig(),
+    ...def,
     ...partial,
     rules: {
       detect: partial.rules?.detect ?? [],
       fix: partial.rules?.fix ?? [],
+      extends: partial.rules?.extends ?? [],
+      disable: partial.rules?.disable ?? [],
+      override: partial.rules?.override ?? {},
+      accept: partial.rules?.accept ?? [],
     },
-    excludePaths: partial.excludePaths ?? [],
-    excludeGroups: partial.excludeGroups ?? {},
-    cache: { ...defaultConfig().cache, ...partial.cache },
-    log: { ...defaultConfig().log, ...partial.log },
-    output: { ...defaultConfig().output, ...partial.output },
+    excludePaths: partial.excludePaths ?? def.excludePaths,
+    excludeGroups: partial.excludeGroups ?? def.excludeGroups,
+    cache: { ...def.cache, ...partial.cache },
+    log: { ...def.log, ...partial.log },
+    output: { ...def.output, ...partial.output },
   };
 }
 

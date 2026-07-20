@@ -8,7 +8,14 @@ import type { RegentConfig } from '../schema.js';
 
 export function defaultConfig(): RegentConfig {
   return {
-    rules: { detect: [], fix: [] },
+    rules: {
+      detect: [],
+      fix: [],
+      extends: [],
+      disable: [],
+      override: {},
+      accept: [],
+    },
     excludePaths: [],
     excludeGroups: {},
     cache: { enabled: true, maxBytes: 100 * 1024 * 1024 },
