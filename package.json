@@ -35,7 +35,7 @@
     "node": ">=20"
   },
   "dependencies": {
-    "commander": "^12.1.0",
+    "commander": "^15.0.0",
     "picocolors": "^1.1.0",
     "re2-wasm": "^1.0.0",
     "simple-git": "^3.27.0",
