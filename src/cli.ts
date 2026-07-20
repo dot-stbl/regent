@@ -161,6 +161,109 @@ program
   });
 
 program
+  .command('cache')
+  .description('Inspect or manage the .regent/cache.json cache')
+  .argument('<action>', 'stats | clear')
+  .action(async (action: string) => {
+    const cwd = process.cwd();
+    const { defaultCachePath } = await import('./core/cache.js');
+    const cachePath = defaultCachePath(cwd);
+    if (action === 'stats') {
+      const { DiskCache } = await import('./core/cache.js');
+      const cache = new DiskCache({ path: cachePath, maxBytes: 100 * 1024 * 1024 });
+      const stats = cache.stats();
+      process.stdout.write(
+        `${JSON.stringify({ path: cachePath, ...stats }, null, 2)}\n`,
+      );
+      return;
+    }
+    if (action === 'clear') {
+      const { existsSync, unlinkSync } = await import('node:fs');
+      if (existsSync(cachePath)) {
+        unlinkSync(cachePath);
+        getLogger().info({ cachePath }, 'cache cleared');
+      } else {
+        getLogger().info({ cachePath }, 'no cache to clear');
+      }
+      return;
+    }
+    getLogger().error({ action }, 'unknown cache action — use stats or clear');
+    process.exit(2);
+  });
+
+program
+  .command('example')
+  .description('Browse or copy shipped examples')
+  .argument('<action>', 'list | show | copy')
+  .argument('[args...]', 'language or rule-id (for show/copy)')
+  .action(async (action: string, args: string[]) => {
+    const cwd = process.cwd();
+    if (action === 'list') {
+      const { examplesDir, listExamples } = await import('./examples/index.js');
+      const items = listExamples(examplesDir());
+      process.stdout.write(items.map((i) => `${i.language}/${i.ruleId}`).join('\n') + '\n');
+      return;
+    }
+    if (action === 'show') {
+      const [language, ruleId] = args;
+      if (!language || !ruleId) {
+        getLogger().error({}, 'example show <lang> <rule-id>');
+        process.exit(2);
+        return;
+      }
+      const { examplesDir, findExample } = await import('./examples/index.js');
+      const found = findExample(examplesDir(), language, ruleId);
+      if (!found) {
+        getLogger().error({ language, ruleId }, 'example not found');
+        process.exit(2);
+        return;
+      }
+      const { readFileSync } = await import('node:fs');
+      process.stdout.write(readFileSync(found, 'utf8'));
+      return;
+    }
+    if (action === 'copy') {
+      const [language, ruleId, target] = args;
+      if (!language || !ruleId) {
+        getLogger().error({}, 'example copy <lang> <rule-id> [target-dir]');
+        process.exit(2);
+        return;
+      }
+      const { examplesDir, findExample } = await import('./examples/index.js');
+      const targetDir = target ?? `${cwd}/tools/audit/rules`;
+      const { copyFileSync, mkdirSync } = await import('node:fs');
+      const found = findExample(examplesDir(), language, ruleId);
+      if (!found) {
+        getLogger().error({ language, ruleId }, 'example not found');
+        process.exit(2);
+        return;
+      }
+      mkdirSync(targetDir, { recursive: true });
+      const dest = `${targetDir}/${language}.${ruleId}.lint.ts`;
+      copyFileSync(found, dest);
+      process.stdout.write(`copied -> ${dest}\n`);
+      return;
+    }
+    getLogger().error({ action }, 'unknown example action — use list/show/copy');
+    process.exit(2);
+  });
+
+program
+  .command('benchmark')
+  .description('Run a synthetic benchmark to measure scan performance')
+  .option('--files <n>', 'number of synthetic files', '100')
+  .option('--rules <n>', 'number of synthetic rules', '20')
+  .option('--iterations <n>', 'iterations to average', '3')
+  .action(async (options) => {
+    const { runBenchmark } = await import('./core/benchmark.js');
+    const files = Number.parseInt(options.files as string, 10) || 100;
+    const rules = Number.parseInt(options.rules as string, 10) || 20;
+    const iters = Number.parseInt(options.iterations as string, 10) || 3;
+    const result = await runBenchmark({ files, rules, iterations: iters });
+    process.stdout.write(JSON.stringify(result, null, 2) + '\n');
+  });
+
+program
   .command('llm')
   .description('Print LLM-friendly skill documentation (llm.txt)')
   .action(() => {
