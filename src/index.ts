@@ -23,6 +23,7 @@ export { renderSarif } from './reporter/sarif.js';
 export { renderReview, renderReviewJson } from './reporter/review.js';
 export { compileRegex, scanFirst, locationAt, extractContext } from './regex.js';
 export { DEFAULT_CONTEXT_BUFFER } from './constants.js';
+export { patterns, type RegexBuilder } from './patterns/index.js';
 
 export type {
   RuleSpec,
