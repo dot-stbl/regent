@@ -29,6 +29,7 @@
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
 import { Command } from 'commander';
 import pc from 'picocolors';
 
@@ -125,6 +126,14 @@ program
   .description('Create a starter tools/audit/ tree in the current repo')
   .action(() => {
     runInit();
+  });
+
+program
+  .command('migrate')
+  .description('Migrate a legacy tools/audit/config.ts to the v0.2 .regentrc.ts format')
+  .action(async () => {
+    const exitCode = await runMigrate();
+    process.exit(exitCode);
   });
 
 program
@@ -676,26 +685,137 @@ function runInit(): void {
   }
   mkdirSync(`${auditDir}/rules`, { recursive: true });
 
+  // v0.2 scaffold: tools/audit/ kept for back-compat but a .regentrc.*
+  // is the recommended location. The init writes a stub config that
+  // documents the new layout — agent/developer fills it in via
+  // `regent example copy <lang> <rule-id>` or by editing the file
+  // directly.
   writeFileSync(
     `${auditDir}/config.ts`,
     `import { defineConfig } from '@dot-stbl/regent';
 
+// regent ships zero rules. Browse curated examples:
+//   $ regent llm examples <lang>
+// Or copy one into ./rules/:
+//   $ regent example copy csharp no-todo-without-owner
+//   $ regent example copy typescript no-console
+//   $ regent example copy meta trailing-newline
+//
+// Inline rules can also live in this file under rules.detect[]:
+//   rules: { detect: [{ id: 'foo', severity: 'error', pattern: '...', globs: ['**/*'], message: '...' }] }
+//
+// Use excludePaths / excludeGroups to scope rule coverage:
+//   excludePaths: ['@generated', '@node-modules']
+//   excludeGroups: { 'contract-tests': ['**/ContractTests/**'] }
 export default defineConfig({
   rules: {
+    detect: [],
+    fix: [],
+    extends: [],
     disable: [],
     override: {},
     accept: [],
-    add: [],
   },
 });
 `,
     'utf8',
   );
 
+  // .gitignore: config.local.ts (per-dev overrides), .rejections.json
+  writeFileSync(
+    `${auditDir}/.gitignore`,
+    `config.local.ts
+.rejections.json
+`,
+    'utf8',
+  );
+
+  // AGENT.md — instruction for an LLM agent running in this repo.
+  writeFileSync(
+    `${auditDir}/AGENT.md`,
+    `# rules for this folder
+
+regent is a multi-mode static analysis framework. Three rule kinds:
+
+- \`*.lint.ts\` — detect-only (eslint-style)
+- \`*.fix.ts\` — match + replace (prettier-lite)
+- \`*.transform.ts\` — programmatic rewrite (v0.3+)
+
+## how to author
+
+1. \`regent llm authoring detect\` — full guide
+2. \`regent llm schema detect\` — spec schema
+3. \`regent llm examples <lang>\` — curated examples
+4. \`regent example copy <lang> <rule-id>\` — copy an example into here
+
+## how to verify
+
+\`regent check\` runs all rules. Iterate until clean.
+\`regent fix\` applies auto-fixes (writes files).
+\`regent review\` surfaces tri-state review candidates.
+`,
+    'utf8',
+  );
+
   writeFileSync(`${auditDir}/rules/.gitkeep`, '', 'utf8');
 
-  console.log(pc.green(`✓ created ${auditDir}/`));
-  console.log(pc.dim('  regent ships zero rules. Browse curated examples with `regent llm examples <lang>` or copy via `regent example copy <lang> <rule-id>`.'));
+  process.stdout.write(`✓ created ${auditDir}/\n`);
+  process.stdout.write(`  regent ships zero rules. Browse curated examples with \`regent llm examples <lang>\` or copy via \`regent example copy <lang> <rule-id>\`.\n`);
+  process.stdout.write(`  Next: see ${auditDir}/AGENT.md for an agent's-eye view.\n`);
+}
+
+async function runMigrate(): Promise<number> {
+  const cwd = process.cwd();
+  // Accept either .ts or .js legacy config — both have shipped.
+  let legacyPath = '';
+  for (const ext of ['.ts', '.mts', '.js', '.mjs']) {
+    const candidate = `${cwd}/tools/audit/config${ext}`;
+    if (existsSync(candidate)) {
+      legacyPath = candidate;
+      break;
+    }
+  }
+  if (!legacyPath) {
+    process.stdout.write('no legacy tools/audit/config.{ts,js} to migrate\n');
+    return 0;
+  }
+  // Minimal v0.2 migration — reads the legacy config and emits a
+  // .regentrc.ts. The legacy shape used rules.add[]; v0.2 uses
+  // rules.detect[] / rules.fix[]. We split based on which fields are
+  // present (rules with `find` are fix rules; everything else is a
+  // detect rule).
+  try {
+    const mod = (await import(pathToFileURL(legacyPath).href)) as {
+      default?: { rules?: { add?: Array<Record<string, unknown>> } };
+    };
+    const add = mod.default?.rules?.add ?? [];
+    const detect = add.filter((r) => !('find' in r));
+    const fix = add.filter((r) => 'find' in r);
+    const config = {
+      rules: {
+        detect,
+        fix,
+        extends: [],
+        disable: [],
+        override: {},
+        accept: [],
+      },
+    };
+    const targetPath = `${cwd}/.regentrc.ts`;
+    const banner = `// migrated from tools/audit/config.ts on ${new Date().toISOString()}\n// source: ${legacyPath}\n\n`;
+    writeFileSync(
+      targetPath,
+      banner + `import { defineConfig } from '@dot-stbl/regent';\n\nexport default defineConfig(${JSON.stringify(config, null, 2)});\n`,
+      'utf8',
+    );
+    process.stdout.write(`✓ migrated -> ${targetPath}\n`);
+    process.stdout.write(`  ${detect.length} detect rule(s), ${fix.length} fix rule(s)\n`);
+    process.stdout.write(`  Original at ${legacyPath} — back up and delete when ready.\n`);
+    return 0;
+  } catch (err) {
+    getLogger().error({ err: { message: (err as Error).message } }, 'migrate failed');
+    return 1;
+  }
 }
 
 function shouldUseColor(options: { color?: unknown }): boolean {

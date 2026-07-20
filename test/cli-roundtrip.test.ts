@@ -61,7 +61,9 @@ describe('cli round-trip: init', () => {
     expect(content).toContain('defineConfig');
     // v0.2: regent ships zero rules; init scaffolds an empty config.
     expect(content).not.toContain('@dot-stbl/regent/presets/');
-    expect(content).not.toContain('extends:');
+    // The scaffolded config has an empty rules array — no rules
+    // referenced from the preset layer.
+    expect(content).toMatch(/detect:\s*\[\s*\]/);
   });
 
   it('refuses to overwrite existing tools/audit/', async () => {
