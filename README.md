@@ -7,46 +7,43 @@
 
 <p align="right">
   <a href="https://github.com/dot-stbl/regent/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/dot-stbl/regent/ci.yml?branch=main&label=ci"></a>
-  <a href="https://github.com/dot-stbl/regent/blob/main/LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-yellow.svg"></a>
+  <a href="https://github.com/dot-stbl/regent/blob/main/LICENSE"><img alt="License: MIT" src="https://img.shields.io/github/license/dot-stbl/regent"></a>
   <a href="https://github.com/dot-stbl/regent/tags"><img alt="Version" src="https://img.shields.io/github/v/tag/dot-stbl/regent"></a>
-  <a href="https://github.com/dot-stbl/regent/issues"><img alt="Issues" src="https://img.shields.io/github/issues/dot-stbl/regent"></a>
 </p>
 
 <p align="center">
-  <strong>The enforcer of <code>[.stbl]</code> house rules.</strong>
+  <strong>Multi-mode static analysis framework for LLM agents.</strong>
   <br>
-  Grep- and regex-based rule registry. TypeScript-native. Linear-time regex.
+  Detect. Fix. Cache. Review. Zero bundled rules.
   <br><br>
   <a href="#install">Install</a> ·
-  <a href="#in-action">In action</a> ·
+  <a href="#quickstart">Quickstart</a> ·
   <a href="#how-it-works">How it works</a> ·
   <a href="#writing-a-rule">Writing a rule</a> ·
   <a href="CONTRIBUTING.md">Contributing</a> ·
-  <a href="https://github.com/dot-stbl/brand">Brand kit</a>
+  <a href="https://github.com/dot-stbl/brand">Brand</a>
 </p>
 
 ---
 
 ## What it does
 
-`regent` reads **rule files** alongside the prose that documents them,
-runs them across your repository, and reports violations as styled text
-(for terminals and agents) or **SARIF 2.1** (for CI / GitHub code
-scanning).
+`regent` is a **multi-mode static analysis framework** for any
+language, with the agent as the first-class rule author. Three rule
+kinds:
 
-Rules live as `*.rule.ts` files paired with sibling `*.md` prose — same
-basename, same folder. Roslyn-style analyzer rules stay in
-`.editorconfig`; `regent` covers what analyzers can't see —
+- **detect** (`.lint.ts`) — match → report (eslint-style)
+- **fix** (`.fix.ts`) — match → string replace (prettier-lite)
+- **transform** (`.transform.ts`) — programmatic rewrite (v0.3+)
 
-- **Naming grep** (`ct`, `req`, `tmp` parameter names; forbidden suffixes)
-- **Structural grep** (`private` methods, `throw ex;`, `_ =` discards)
-- **File-glob conventions** (`#region`, single-line interfaces)
-- **Project-shape invariants** that don't fit `[CA|RCS|VSTHRD]` (no
-  `using` provider namespaces from module code)
+`regent` ships **zero rules by default**. Every rule is authored by
+the user or LLM agent. Curated examples live under `examples/<lang>/`
+and are accessed via `regent example copy <lang> <rule-id>`.
 
-A **regent** is the appointed ruler who enforces the law. The metaphor
-holds: rules are codified prose, `regent` walks the codebase and
-reports who's out of line.
+Pattern matching uses **RE2** (linear-time, no ReDoS surface);
+`re2-wasm` enforces RE2 syntax at compile time. Multi-line matches
+are not supported — compose per-line patterns and use `excludeWhen`
+for context.
 
 ## Install
 
@@ -55,10 +52,11 @@ scope. Free for public packages.
 
 ### One-time setup
 
-1. **Generate a Personal Access Token (classic)** with the `read:packages`
-   scope at <https://github.com/settings/tokens/new>. No other scopes needed.
+1. **Generate a Personal Access Token (classic)** with the
+   `read:packages` scope at <https://github.com/settings/tokens/new>.
 
-2. **Configure `~/.npmrc`** so the `@dot-stbl` scope routes to GitHub Packages:
+2. **Configure `~/.npmrc`** so the `@dot-stbl` scope routes to GitHub
+   Packages:
 
    ```ini
    @dot-stbl:registry=https://npm.pkg.github.com
@@ -78,311 +76,249 @@ bun add -g @dot-stbl/regent
 bunx @dot-stbl/regent check
 ```
 
-> Visibility: GitHub Packages defaults to **private** on first publish. To
-> make `regent` available publicly, go to
-> <https://github.com/orgs/dot-stbl/packages/npm/regent/settings> and
-> change visibility to **public**. One-time action per package.
-
-## In action
-
-```sh
-$ bunx @dot-stbl/regent check
-src/Foo.cs:42 [error] csharp.no-private-methods
-   39 │ public class Foo
-   40 │ {
-   41 │     private readonly ILogger _log;
-   42 │     private void Bar() {                ← regent v0.1
-   43 │         return;
-   44 │     }
-   45 │ }
-
-  no private methods in production code — extract to file-static helper
-  Source: ~/.agents/rules/csharp/code-shape.md#no-private-business-logic
-
-src/Foo.cs:60 [error] csharp.no-region-directive
-   60 │ #region Properties
-
-  #region запрещён в C# (code-shape.md §10)
-  Source: ~/.agents/rules/csharp/code-shape.md#no-region-directives
-
-─────────── Review candidates ───────────
-
-src/Baz.cs:42 [review] csharp.no-todo-without-owner
-   40 │ public void Foo() {
-   41 │     // TODO follow-up
-   42 │     DoThing();
-
-  ⓘ проверь что у TODO есть owner или ticket (например `TODO(ANL-200):`).
-       Если нет — добавь ticket или `regent accept` с причиной.
-  Source: code-shape.md#todo-without-owner
-
-2 errors · 1 review · 50 rules
-```
-
-For CI:
-
-```sh
-$ bunx @dot-stbl/regent check --format sarif --out audit.sarif
-$ bunx @dot-stbl/regent check --no-review    # CI variant — review section hidden
-```
-
-`regent review` produces the LLM-friendly list:
-
-```sh
-$ bunx @dot-stbl/regent review > candidates.md
-# regent review candidates
-> Read each finding, decide accept|reject ...
-## `src/Baz.cs:42`
-- **Rule:** `csharp.no-todo-without-owner`
-- **Guidance:** проверь что у TODO есть owner или ticket ...
-```
-
-SARIF integrates with **GitHub code scanning** via
-`github/codeql-action/upload-sarif@v3` — review findings show up as
-`note` (not `warning`), so they don't fail required checks but are
-visible in the diff view.
+> Visibility: GitHub Packages defaults to **private** on first publish.
+> Make the package public via
+> <https://github.com/orgs/dot-stbl/packages/npm/regent/settings>.
 
 ## Quickstart
 
 ```sh
-# In a repo with @dot-stbl/regent installed
-bunx @dot-stbl/regent check [--all]            # violations + review (default)
-bunx @dot-stbl/regent check --no-review        # violations only (CI variant)
-bunx @dot-stbl/regent review [--format json]   # pending review findings (markdown or json)
-bunx @dot-stbl/regent list                     # every loaded rule + origin
-bunx @dot-stbl/regent explain csharp.no-private-methods
-bunx @dot-stbl/regent init                     # scaffold tools/audit/
+# 1. Scaffold tools/audit/ + AGENT.md in your repo
+regent init
 
-# Tri-state review: accept|reject|ignore findings persistently
-bunx @dot-stbl/regent accept csharp.no-todo-without-owner \
-    src/Baz.cs:42 --reason "tracked in ANL-200"
-bunx @dot-stbl/regent reject csharp.no-todo-without-owner \
-    src/Baz.cs:60
+# 2. Browse curated examples (multi-page docs the agent reads)
+regent llm examples csharp
+regent llm examples csharp.no-todo-without-owner
+
+# 3. Copy an example into your project
+regent example copy csharp no-todo-without-owner
+
+# 4. Run rules
+regent check
+regent fix --check
+regent fix --write
+
+# 5. Review tri-state candidates
+regent review
+regent accept csharp.no-todo-without-owner src/Foo.cs \
+    --reason "legacy file, tracked in ANL-200"
+
+# 6. Cache + benchmark
+regent cache stats
+regent benchmark
 ```
-
-The `accept`/`reject` commands mutate `tools/audit/config.local.ts`
-(Layer 4 — gitignored per dev) or `config.ts` (Layer 3 — committed)
-so decisions persist across runs and survive code review.
 
 ## How it works
 
-`regent` merges rules from four layers. **Top wins.**
+`regent` reads **config files** alongside the **rules** they
+reference, runs them across your repository, and reports findings
+as styled text (for terminals and agents) or **SARIF 2.1** (for CI /
+GitHub code scanning).
 
-```mermaid
-flowchart LR
-  A[Built-in preset<br/>@dot-stbl/regent/presets/*] --> M{{merge}}
-  B[User-global<br/>~/.agents/rules/**/*.rule.ts] --> M
-  C[Repo<br/>tools/audit/config.ts] --> M
-  D[Dev<br/>config.local.ts] --> M
-  M --> R[Compiled rule set]
-  R --> W[Walk git-changed files]
-  W --> X[RE2 match + line span]
-  X --> Ctx[Context window<br/>startLine-3 .. endLine+3]
-  Ctx --> T[Text reporter<br/>picocolors]
-  Ctx --> S[SARIF 2.1<br/>region + contextRegion]
-```
+### Config layers (low → high precedence)
 
-| Priority | Source | Discovery |
-|---|---|---|
-| 1 (base) | Built-in presets | `@dot-stbl/regent/presets/*` (loaded by default) |
-| 2 | User-global | `~/.agents/rules/**/*.rule.ts` (auto-loaded, recursive) |
-| 3 | Repository | `<repo>/tools/audit/{config.ts, rules/*.rule.ts}` (committed) |
-| 4 (top) | Per-developer | `<repo>/tools/audit/config.local.ts` (gitignored) |
+1. **Built-in defaults** — `info` log level, `text` format, cache on.
+2. **User-global config** — `~/.config/regent/config.{ts,js,yaml,json}`.
+3. **Project config** — `.regentrc.{ts,js,yaml,json}` (via cosmiconfig,
+   walks up from cwd).
+4. **Per-developer config** — `.regentrc.local.*` (gitignored).
+5. **Env vars** — `STBL_REGENT_LOG_LEVEL`, `STBL_REGENT_LOG_FORMAT`,
+   `STBL_REGENT_CACHE_ENABLED`, …
+6. **CLI args** — `--log-level`, `--log-format`, `--no-cache`.
 
-Each rule is a `.rule.ts` file paired with a `.md` document of the
-same basename in the same folder. The `.md` is the human-readable
-rationale; the `.rule.ts` is the executable form. The loader
-auto-derives the `source` field (a back-link to the prose) when not
-set explicitly.
+Config is validated by Zod strict mode at load time — unknown keys
+fail-fast.
 
-The match step uses **RE2** via `re2-wasm` — linear-time matching,
-no ReDoS surface. Patterns use RE2 syntax (no backreferences, no
-lookahead) which prevents catastrophic backtracking on adversarial
-input.
+### Named exclude groups
 
-The context window is hardcoded to **3 lines before and 3 after** the
-match (`src/constants.ts`). Single-line matches produce 7 lines of
-context; multi-line matches naturally extend because the
-`endLine + 3` is computed from the match's end.
+Rules reference **named groups** in `excludePaths` instead of long
+glob lists. Built-ins:
 
-## Tri-state review
-
-Some matches aren't always violations. `regent` handles them with
-three explicit states per finding:
-
-| State | Triggered by | Visible in `regent check`? | Visible in `regent review`? | Exit code? |
-|---|---|---|---|---|
-| `pending` | review-rule match, not in accept-list | yes, "Review candidates" section (default) | yes, primary content | only when `review.exitBehavior === 'unreviewed-fails'` + severity threshold |
-| `accepted` | matched accept-list entry for `(ruleId, path[, line])` | no (filtered) | only with `--include-accepted` (audit) | never |
-| `violation` | non-review rule OR unreviewed review-rule | yes, top section | no (review-only shows pending) | when severity ≥ `--exit-on` |
-
-Transitions: `pending → accepted` via `regent accept <rule> <path> --reason "..."`
-(adds to the accept-list, audit-trail required); `pending → violation` via
-`regent reject <rule> <path:line>` (writes to `.rejections.json`, fails CI).
-
-### How to author a review-mode rule
+| Group | Globs |
+|-------|-------|
+| `@generated` | `**/*.g.cs`, `**/*.Designer.cs`, `**/Generated/**`, … |
+| `@migrations` | `**/Migrations/**` |
+| `@build-output` | `**/bin/**`, `**/obj/**`, `**/dist/**`, … |
+| `@node-modules` | `**/node_modules/**` |
+| `@git` | `**/.git/**` |
+| `@ide` | `**/.vscode/**`, `**/.idea/**` |
+| `@vendored` | `**/vendor/**`, `**/third_party/**` |
 
 ```ts
-// ~/.agents/rules/csharp/no-todo-without-owner.rule.ts
-import { defineRule } from '@dot-stbl/regent';
+excludePaths: ['@generated', '@build-output', '**/legacy/**']
+```
 
-export default defineRule({
-  id: 'csharp.no-todo-without-owner',
-  severity: 'warning',
-  pattern: '//\\s*(TODO|FIXME)\\b',
-  excludeWhen: '//\\s*(TODO|FIXME)\\s*\\(',     // skip if has ticket ref
-  globs: ['**/*.cs'],
-  message: 'TODO / FIXME без owner / ticket ref',
-  source: 'code-shape.md#todo-without-owner',
-  review: {
-    enabled: true,
-    exitBehavior: 'unreviewed-fails',         // fail CI unless accepted
-    guidance: 'проверь что у TODO есть owner или ticket ...',
+User-defined groups override built-ins. Declare under `excludeGroups`
+in your `.regentrc.*`:
+
+```ts
+export default defineConfig({
+  excludeGroups: {
+    'contract-tests': ['**/ContractTests/**'],
   },
+  // ...
 });
 ```
 
-`exitBehavior` choices:
+### Tri-state review
 
-- `'no-fail'` (default) — review findings never affect exit code. The
-  rule's `severity` still drives reporter color.
-- `'unreviewed-fails'` — any unreviewed pending finding fails CI at
-  `severity >= --exit-on`. Acceptance via `regent accept` clears the
-  failure.
-
-### How tri-state compares to alternatives
-
-| Concern | Strict | Review (this) | Disable |
-|---|---|---|---|
-| Output | violations section | review section | hidden entirely |
-| Future runs | re-fires forever | re-fires until accepted | silenced forever |
-| CI exit code | fails | depends on `exitBehavior` | never |
-| Agent-readable source | finding message + rationale | finding message + `guidance` + provenance | n/a |
-| Recovery | edit code | `regent accept ... --reason "..."` | edit `disable` in config |
-
-`regent accept` is the missing 3rd state: **"yes, this match is
-intentional under these documented terms."** The reason is required
-(500 chars max) for audit-trail and is propagated to the finding's
-`acceptedReason` field which surfaces via SARIF
-`properties.reason` and the audit view of `regent review
---include-accepted`.
+Rules with `review.enabled` produce `pending` findings instead of
+violations. Surface them via `regent review` and triage with
+`regent accept` (silence) or `regent reject` (escalate). Review
+findings don't fail CI on their own unless
+`review.exitBehavior: 'unreviewed-fails'`.
 
 ## Writing a rule
 
 ```ts
-// ~/.agents/rules/csharp/no-region-directive.rule.ts
-import { defineRule } from '@dot-stbl/regent';
+// rules/csharp.no-todo-without-owner.lint.ts
+import { defineDetectRule, patterns } from '@dot-stbl/regent';
 
-export default defineRule({
-  id: 'csharp.no-region-directive',
-  severity: 'error',                  // error | warning | suggestion
-  pattern: '^\\s*#region\\b',         // RE2 syntax — no backreferences
+export default defineDetectRule({
+  id: 'csharp.no-todo-without-owner',
+  severity: 'warning',
+  pattern: patterns.todoComment()
+    .unlessFollowedBy(patterns.ticketReference())
+    .toRegex(),
   globs: ['**/*.cs'],
-  excludePaths: ['**/*.g.cs', '**/obj/**'],
-  message: '#region запрещён в C# (code-shape.md §10)',
-  // source auto-derived from sibling no-region-directive.md
-});
-```
-
-Pair it with `no-region-directive.md` documenting the rationale. The
-prose + executable then propagate via `regent explain <id>` and into
-each finding's output.
-
-Per-project override:
-
-```ts
-// tools/audit/config.ts (committed)
-import { defineConfig } from '@dot-stbl/regent';
-
-export default defineConfig({
-  extends: ['@dot-stbl/regent/presets/csharp', '~/.agents/rules/csharp/*.rule.ts'],
-  rules: {
-    disable: ['csharp.no-public-fields'],
-    override: { 'csharp.no-private-methods': { severity: 'warning' } },
-    add: [],
+  excludePaths: ['@generated'],
+  message: 'TODO without a ticket reference',
+  review: {
+    enabled: true,
+    exitBehavior: 'unreviewed-fails',
+    guidance: 'Add a ticket ref like TODO(ANL-200) or accept with reason.',
   },
 });
 ```
 
-`config.local.ts` (gitignored) layers on top — each developer can
-mute rules locally without committing changes.
+Companion `.md` (auto-discovered as `spec.source`):
 
-## When to use `regent`, not `.editorconfig` / ESLint / Roslyn
+```md
+# csharp.no-todo-without-owner
 
-| Concern | `.editorconfig` + analyzers | ESLint | **`regent`** |
-|---|---|---|---|
-| Compile-time invariants | ✅ | partial | ❌ (separate) |
-| Cross-file grep rules | ❌ | via plugins | ✅ (built-in) |
-| Inline alongside `.md` prose | ❌ | ❌ | ✅ |
-| Lives outside the repo (user-global) | ❌ | ❌ | ✅ (`~/.agents/rules/`) |
-| Per-dev override without commit | ❌ | partial | ✅ (`config.local.ts`) |
-| SARIF for CI / IDE | via csproj | via plugins | ✅ (built-in) |
-| Linear-time ReDoS-safe regex | n/a | n/a | ✅ (RE2) |
+Every TODO needs a ticket ref. See
+[code-shape.md §todo-without-owner](https://github.com/dot-stbl/regent/blob/main/assets/llm/authoring/detect.md).
+```
 
-`regent` is the grep/regex layer **alongside** analyzer-style tools,
-not their replacement. Use `.editorconfig` for project-wide build
-flags, ESLint for `.ts`/`.tsx` (and `biome check` for fast Rust-native
-lint), and `regent` for rules that should travel with the prose that
-explains them.
+Full authoring guides:
 
-## Status
+```sh
+regent llm authoring detect
+regent llm authoring fix
+regent llm schema detect
+regent llm examples csharp
+```
 
-|   |   |
-|---|---|
-| Stage | Pre-release (skeleton + 4 csharp preset rules) |
-| Version | 0.1.0 (not yet tagged) |
-| License | MIT |
-| Runtime | Bun ≥ 1.1 (Node 20+ also supported) |
-| Regex | `re2-wasm` (linear-time, no ReDoS) |
-| Test runner | vitest |
-| CI | GitHub Actions (OIDC publish to GitHub Packages) |
+## Agent workflow
+
+```sh
+# 1. Read user intent
+# 2. Browse curated examples
+regent llm examples <lang>
+
+# 3. Author a rule OR copy one
+regent example copy <lang> <rule-id>
+# (or write tools/audit/rules/<rule-id>.lint.ts by hand)
+
+# 4. Verify
+regent check
+regent fix --check
+regent review
+
+# 5. Iterate
+```
+
+## Logging
+
+Operational logs go to **stderr** via `pino`. Findings / reports /
+banners go to **stdout** (machine-readable data). Configure with:
+
+- `--log-level` / `--log-format` CLI flags (highest precedence)
+- `STBL_REGENT_LOG_LEVEL` / `STBL_REGENT_LOG_FORMAT` env vars
+- `log.level` / `log.format` in your config
+
+Levels: `trace | debug | info | warn | error | fatal`. Formats:
+`text` (pino-pretty, TTY-friendly) or `json` (NDJSON for log
+aggregators).
+
+**Log hygiene:** `safeLog()` from the public API redacts `matchText`,
+`pattern`, and `path` — these may contain secrets. Use `safeLog()` for
+all custom log payloads; pino's redact covers the rest.
 
 ## Architecture
 
 | File | Role |
+|------|------|
+| `src/types.ts` | `RuleSpec`, `Severity`, `ConfigLayer`, `Finding`, `ContextWindow` |
+| `src/define-rule.ts` | legacy `defineRule` (alias for `defineDetectRule`) |
+| `src/kinds/detect.ts` | `defineDetectRule` (`.lint.ts`) |
+| `src/kinds/fix.ts` | `defineFixRule` (`.fix.ts`) |
+| `src/kinds/index.ts` | public kind surface |
+| `src/patterns/index.ts` | composable regex builders |
+| `src/loader.ts` | discovery + applies disable/override/add/accept |
+| `src/runner.ts` | per-file scan via `scanFile` (parallel) |
+| `src/regex.ts` | RE2 wrapper over `re2-wasm` |
+| `src/config/` | layered config: cosmiconfig + Zod + 5 sources |
+| `src/logging/` | pino + safeLog + log levels |
+| `src/core/cache.ts` | disk cache (`.regent/cache.json`, atomic, LRU) |
+| `src/core/dag.ts` | cycle detection + topological sort |
+| `src/core/benchmark.ts` | synthetic perf workload + baseline |
+| `src/core/diff.ts` | unified diff for `regent fix --diff` |
+| `src/core/scanner.ts` | Rust-ready `FileScanner` interface (TS impl) |
+| `src/core/scanner-matcher.ts` | matcher algorithm (TS reference) |
+| `src/reporter/text.ts` | picocolors-coloured, multi-line context |
+| `src/reporter/sarif.ts` | SARIF 2.1 (`region` + `contextRegion`) |
+| `src/reporter/review.ts` | pending / accepted markdown + JSON |
+| `src/cli.ts` | commander: `check`, `fix`, `review`, `list`, `init`, `migrate`, `accept`, `reject`, `cache`, `example`, `benchmark`, `llm` |
+| `src/llm.ts` | multi-page skill docs loader |
+| `src/llm-router.ts` | `regent llm <subcommand>` router |
+| `src/examples/index.ts` | shipped-example registry |
+| `assets/llm/` | agent skill contract (markdown) |
+| `examples/<lang>/*.lint.ts` | shipped rule packs (NOT auto-loaded) |
+
+## Why `regent`?
+
+- **Zero language bias.** No bundled C# / TS / Python rules. The
+  agent picks what fits the project.
+- **TS-first authoring surface.** No YAML / JSON config; rules are
+  TypeScript modules with type-safe `defineDetectRule` /
+  `defineFixRule` helpers.
+- **RE2 matching.** Linear-time, no ReDoS, no backreferences.
+- **Agent contract.** `regent llm` exposes the full skill set as
+  navigable markdown — agents self-discover without hand-feeding.
+- **Cache + benchmark.** `.regent/cache.json` with version-stamp
+  invalidation; `regent benchmark` measures perf and gates
+  regressions in CI.
+
+## Status
+
+| | |
 |---|---|
-| `src/types.ts` | `RuleSpec`, `Severity`, `Config`, `Finding`, `ContextWindow` |
-| `src/define-rule.ts` | `defineRule<T>()`, `defineConfig<T>()` — type-safe narrowing + freeze |
-| `src/constants.ts` | `DEFAULT_CONTEXT_BUFFER = 3` |
-| `src/regex.ts` | `compileRegex`, `scanFirst`, `extractContext` over `re2-wasm` |
-| `src/loader.ts` | 4-layer merge, sibling `.md` back-link, config extends/glob |
-| `src/runner.ts` | line-by-line RE2 scan, byte-offset context extraction |
-| `src/reporter/text.ts` | picocolors, multi-line context, severity-coloured gutter |
-| `src/reporter/sarif.ts` | SARIF 2.1 `region` + `contextRegion` for GitHub code scanning |
-| `src/cli.ts` | commander: `regent <check\|list\|init\|explain>` |
-| `src/presets/csharp.ts` | `noRegion`, `noPrivateMethods`, `noTodoWithoutOwner` (review), `shortName` (review) |
+| Stage | v0.2 in development |
+| Version | 0.2.0 (pre-release) |
+| License | MIT |
+| Runtime | Node ≥ 20 (Bun recommended for dev) |
+| Regex | `re2-wasm` (linear-time, no ReDoS) |
+| Test runner | vitest |
+| CI | GitHub Actions (typecheck + lint + test + benchmark gate) |
 
 ## Brand
 
 Brand assets are vendored via git submodule from
-[dot-stbl/.github](https://github.com/dot-stbl/.github) at `assets/stbl/`:
-
-- `assets/stbl/assets/by-stbl.css` — `.by-stbl` utility class (for inline README use)
-- `assets/stbl/assets/lockup-template.svg` — template for `ProductName by .stbl` lockups
-- `assets/stbl/assets/logo.svg` — canonical `.stbl` mark (64×64 black square, 32×32 white inner)
-- `assets/stbl/assets/wordmark.svg` — mark + `stbl` text
-- `assets/lockup-regent.svg` — generated lockup for this product
-- `assets/lockup-regent-dark.svg` — dark-surface variant
-- `assets/header-{dark,light}.svg` — README hero, derived from the lockup pattern
-
-To update brand assets: `git submodule update --remote assets/stbl`.
-To modify the `.stbl` kit itself, open a PR at
+[dot-stbl/.github](https://github.com/dot-stbl/.github) at
+`assets/stbl/`. To update: `git submodule update --remote assets/stbl`.
+To modify the kit, open a PR at
 [dot-stbl/.github](https://github.com/dot-stbl/.github).
-The lockup pattern follows [`dot-stbl/brand`](https://github.com/dot-stbl/brand)
-guidelines (mark hierarchy, TRADEMARK restraint).
 
 ## Related
 
-- [`.stbl` brand kit](https://github.com/dot-stbl/brand) — design
-  rules, asset templates, contributing notes (TRADEMARK restraint,
-  mark hierarchy, lockup pattern)
-- [`.stbl` org profile](https://github.com/dot-stbl/.github) — brand
-  assets source (this repo's `assets/stbl/` is a submodule of it)
-- [`.stbl` org](https://github.com/dot-stbl) — sibling projects
-  (`tessera`, `plexor`, `anlytra`, …)
-- [`.stbl/regent` repo](https://github.com/dot-stbl/regent) — issues,
-  PRs, releases
+- [`@dot-stbl` brand kit](https://github.com/dot-stbl/brand) —
+  design rules, asset templates, contributing notes.
+- [`@dot-stbl` org](https://github.com/dot-stbl) — sibling projects
+  (`tessera`, `plexor`, `anlytra`, …).
+- [`@dot-stbl/regent` repo](https://github.com/dot-stbl/regent) —
+  issues, PRs, releases.
 
 ---
 
-<sub><code>regent</code> is built by <a href="https://github.com/dot-stbl">.stbl</a>. — <code>[.stbl](feat/regent): init scaffolding</code></sub>
+<sub><code>regent</code> is built by <a href="https://github.com/dot-stbl">.stbl</a>. — <code>[.stbl](feat/v0.2): multi-mode agent-first static analysis</code></sub>
