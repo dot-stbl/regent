@@ -1,7 +1,7 @@
-<p align="right">
+<p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="assets/header-dark.svg">
-    <img alt="regent by .stbl" src="assets/header-light.svg" width="220">
+    <img alt="regent by .stbl" src="assets/header-light.svg">
   </picture>
 </p>
 
