@@ -41,6 +41,7 @@ import { renderReview, renderReviewJson } from './reporter/review.js';
 import type { ConfigLayer, RunnerScope, Severity } from './types.js';
 import { renderBanner } from './cli/banner.js';
 import { loadLlmText } from './llm.js';
+import { routeLlm } from './llm-router.js';
 import { createLogger, type Logger } from './logging/index.js';
 import { isLogLevel, type LogLevel } from './logging/levels.js';
 
@@ -274,10 +275,17 @@ program
 
 program
   .command('llm')
-  .description('Print LLM-friendly skill documentation (llm.txt)')
-  .action(() => {
-    process.stdout.write(loadLlmText());
-    process.exit(0);
+  .description('Print LLM-friendly skill documentation')
+  .argument('[sub...]', 'subcommand path (e.g. "authoring detect", "examples csharp")')
+  .action((sub: string[]) => {
+    const subArgs = sub ?? [];
+    const result = routeLlm(subArgs);
+    if (result.kind === 'ok') {
+      process.stdout.write(result.content);
+      process.exit(0);
+    }
+    getLogger().error({}, result.message);
+    process.exit(2);
   });
 
 async function runCheck(options: CheckOptions): Promise<number> {

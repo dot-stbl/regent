@@ -229,23 +229,4 @@ describe('assets/header SVGs', () => {
       expect(favicon).toMatch(/<rect class="inner" x="8" y="8" width="16" height="16"/);
     });
   });
-
-  describe('llm.txt (assets/llm.txt)', () => {
-    it('exists, non-empty, contains skill sections', () => {
-      const llm = readAsset('llm.txt');
-      expect(llm.length).toBeGreaterThan(500);
-      expect(llm).toContain('regent — agent skill');
-      expect(llm).toContain('When to use');
-      expect(llm).toContain('Writing a rule');
-      expect(llm).toContain('Tri-state review');
-      expect(llm).toContain('Anti-patterns');
-    });
-
-    it('references all key CLI commands', () => {
-      const llm = readAsset('llm.txt');
-      for (const cmd of ['check', 'review', 'list', 'explain', 'init', 'accept', 'reject', 'llm']) {
-        expect(llm, `missing command reference: ${cmd}`).toContain(`regent ${cmd}`);
-      }
-    });
-  });
 });
