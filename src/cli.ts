@@ -327,7 +327,10 @@ async function runCheck(options: CheckOptions): Promise<number> {
     diffBase: options.diffBase as string,
   };
 
-  const result = await runRules(rules, scope, { acceptList: loadedRules.acceptList });
+  const result = await runRules(rules, scope, {
+    acceptList: loadedRules.acceptList,
+    contextBuffer: loadedRules.resolvedConfig.output.contextBuffer,
+  });
   let findings = result.findings;
 
   // Violations-only flag (drop pending review)
@@ -409,6 +412,7 @@ async function runReview(options: ReviewOptions): Promise<number> {
 
   const result = await runRules(loaded.rules, scope, {
     acceptList: loaded.acceptList,
+    contextBuffer: loaded.resolvedConfig.output.contextBuffer,
   });
 
   // Strip violations from review output — review only shows pending
