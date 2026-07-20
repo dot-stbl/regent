@@ -319,12 +319,18 @@ async function scanFile(
         DEFAULT_CONTEXT_BUFFER,
       );
 
+      // Precise span + capture-group values of the first match on the
+      // line. `firstMatch` re-runs the compiled RE2 via `exec`; it returns
+      // null only if the pattern no longer matches (it just did in
+      // `scanLineByLine`), in which case we fall back to the whole line.
+      const hit = ruleEntry.pattern.firstMatch(m.line);
       const match: Match = {
         startLine: m.lineIndex,
-        startColumn: 0,
+        startColumn: hit ? hit.start : 0,
         endLine: m.lineIndex,
-        endColumn: m.line.length,
+        endColumn: hit ? hit.end : m.line.length,
         matchText: m.line,
+        ...(hit ? { groups: hit.groups } : {}),
       };
 
       const isReview = ruleEntry.spec.review?.enabled === true;

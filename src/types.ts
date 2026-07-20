@@ -167,13 +167,23 @@ export type RuleOrigin =
   | { readonly kind: 'repo'; readonly path: string }
   | { readonly kind: 'local'; readonly path: string };
 
-/** Match produced by the runner — line + column span. */
+/** Match produced by the runner — line + precise column span. */
 export interface Match {
   readonly startLine: number;       // 0-indexed
-  readonly startColumn: number;     // 0-indexed
+  /** 0-indexed byte offset of the match start within the line. */
+  readonly startColumn: number;
   readonly endLine: number;
+  /** 0-indexed byte offset one past the match end within the line. */
   readonly endColumn: number;
+  /** Full line text containing the match (used by reporters + redaction). */
   readonly matchText: string;
+  /**
+   * Capture-group VALUES (group 1..n) of the first match on the line;
+   * null for a non-participating group. Group *offsets* are not provided —
+   * re2-wasm exposes no `d`-flag `.indices`, so values suffice for template
+   * expansion and spans are derived by the fix engine only when needed.
+   */
+  readonly groups?: readonly (string | null)[];
 }
 
 /** Context window extracted around a match. */

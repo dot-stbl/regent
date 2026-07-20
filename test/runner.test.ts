@@ -51,6 +51,15 @@ const NO_REGION = defineRule({
   excludePaths: ['**/*.md'],
 });
 
+// Mid-line match with a capture group — exercises precise columns + groups.
+const PRIVATE_FIELD = defineRule({
+  id: 'runner.private-field',
+  severity: 'warning',
+  pattern: '(_[A-Za-z]\\w*)',
+  globs: ['**/*.cs'],
+  message: 'underscore field',
+});
+
 describe('runRules', () => {
   it('emits a finding on the matching line', async () => {
     const result = await runRules([NO_REGION], {
@@ -97,5 +106,22 @@ describe('runRules', () => {
       diffBase: 'HEAD',
     });
     expect(result.findings).toHaveLength(0);
+  });
+
+  it('records precise match columns + capture-group values', async () => {
+    const result = await runRules([PRIVATE_FIELD], {
+      cwd: TEST_CWD,
+      includeGlobs: ['sample.cs'],
+      excludeGlobs: [],
+      changedOnly: false,
+      diffBase: 'HEAD',
+    });
+    expect(result.findings).toHaveLength(1);
+    const m = result.findings[0]!.match;
+    expect(m.startLine).toBe(2);            // '_log' is on line index 2
+    expect(m.startColumn).toBe(29);         // precise — not 0
+    expect(m.endColumn).toBe(33);           // [29, 33) for '_log'
+    expect(m.matchText).toContain('private readonly'); // matchText stays the full line
+    expect(m.groups).toEqual(['_log']);
   });
 });
