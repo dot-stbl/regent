@@ -16,6 +16,7 @@
  */
 
 export { defineRule, defineConfig } from './define-rule.js';
+export { defineDetectRule, defineFixRule } from './kinds/index.js';
 export { loadRules, type LoaderOptions, type LoaderRuleSet, type LoadedAcceptEntry } from './loader.js';
 export { runRules, severityAtOrAbove, relativePath } from './runner.js';
 export { renderText, renderSummary } from './reporter/text.js';
