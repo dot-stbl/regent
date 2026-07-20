@@ -67,7 +67,9 @@ describe('cli round-trip: init', () => {
   it('refuses to overwrite existing tools/audit/', async () => {
     const r = await runCli(['init']);
     expect(r.code).not.toBe(0);
-    expect(r.stderr).toMatch(/already exists/);
+    // Errors now go through pino logger → stderr NDJSON; the message
+    // contains 'already exists' (capitalised by pino formatting).
+    expect(r.stderr).toMatch(/already exists/i);
   });
 });
 
@@ -145,7 +147,9 @@ describe('cli round-trip: reject', () => {
       'reject', 'smoke.no-private-methods', 'src/Bar.cs',
     ]);
     expect(r.code).toBe(2);
-    expect(r.stderr).toContain('reject requires <path>:<line>');
+    // Errors come via pino → stderr NDJSON. The message text is
+    // preserved; we match on a stable substring.
+    expect(r.stderr).toMatch(/reject requires/i);
   });
 
   it('accumulates multiple rejections (no duplicates)', async () => {

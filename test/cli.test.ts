@@ -14,19 +14,20 @@ const REPO = join(tmpdir(), `regent-cli-smoke-${Date.now()}`);
 const CLI = join(import.meta.dirname, '..', 'dist', 'cli.js');
 
 beforeAll(async () => {
-  mkdirSync(join(REPO, 'tools', 'audit'), { recursive: true });
+  mkdirSync(REPO, { recursive: true });
   // We need to wait for build before this test runs.
   writeFileSync(
     join(REPO, 'Bad.cs'),
     `public class A {\n    #region\n    int x;\n    #endregion\n}\n`,
   );
-  // v0.2: regent ships zero built-in rules. Provide a config that adds
-  // a simple no-#region rule so the smoke tests have something to fire.
+  // v0.2: regent ships zero built-in rules. Provide a .regentrc.js
+  // (cosmiconfig-discovered) with a simple no-#region rule so the
+  // smoke tests have something to fire.
   writeFileSync(
-    join(REPO, 'tools', 'audit', 'config.js'),
+    join(REPO, '.regentrc.js'),
     `export default {
   rules: {
-    add: [
+    detect: [
       {
         id: 'smoke.no-region',
         severity: 'error',

@@ -21,7 +21,8 @@ export interface CreateLoggerOptions {
 /**
  * Build a logger with the given level + output format.
  *
- * In `text` mode we route through pino-pretty when stdout is a TTY;
+ * All logs go to **stderr** (findings/reports stay on stdout). In
+ * `text` mode we route through pino-pretty when stderr is a TTY;
  * otherwise we still emit text but without ANSI codes (so logs piped
  * to a file remain readable). In `json` mode we emit raw NDJSON.
  *
@@ -29,7 +30,7 @@ export interface CreateLoggerOptions {
  * `scope` field identifying the originating subsystem.
  */
 export function createLogger(opts: CreateLoggerOptions): Logger {
-  const isTTY = process.stdout.isTTY === true;
+  const isTTY = process.stderr.isTTY === true;
 
   const baseOptions: pino.LoggerOptions = {
     level: opts.level,
@@ -41,22 +42,30 @@ export function createLogger(opts: CreateLoggerOptions): Logger {
     },
   };
 
+  // Force logs to stderr via fd 2 — pino defaults to stdout which
+  // would mix with reporter output.
+  const destination = pino.destination({ dest: 2, sync: true });
+
   if (opts.format === 'json') {
-    return pino(baseOptions);
+    return pino(baseOptions, destination);
   }
 
-  return pino({
-    ...baseOptions,
-    transport: {
-      target: 'pino-pretty',
-      options: {
-        colorize: isTTY,
-        translateTime: 'SYS:HH:MM:ss.l',
-        ignore: 'pid,hostname,scope',
-        singleLine: false,
+  return pino(
+    {
+      ...baseOptions,
+      transport: {
+        target: 'pino-pretty',
+        options: {
+          colorize: isTTY,
+          translateTime: 'SYS:HH:MM:ss.l',
+          ignore: 'pid,hostname,scope',
+          singleLine: false,
+          destination: 2,
+        },
       },
     },
-  });
+    destination,
+  );
 }
 
 /**

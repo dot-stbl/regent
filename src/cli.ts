@@ -12,15 +12,14 @@
  *   regent accept    add a finding to the accept-list (config.local.ts)
  *   regent reject    escalate a pending finding to a violation
  *
- * Defaults align with the Plan:
- *   - config path    : tools/audit/config.ts
- *   - scope          : cwd
- *   - changed-only   : true (git-changed since HEAD)
- *   - diff-base      : HEAD
- *   - format         : text
- *   - exit-on        : error
- *   - severity       : inherited from rule
- *   - color          : auto-detect TTY + NO_COLOR + --no-color
+ * Output streams:
+ *   - stdout: findings / reports / banners (machine-readable data)
+ *   - stderr: operational logs (pino, level/format configurable)
+ *
+ * Log levels and format follow STBL_REGENT_LOG_LEVEL /
+ * STBL_REGENT_LOG_FORMAT env vars, then --log-level / --log-format
+ * CLI flags (highest precedence). Default: 'info' / 'text' (TTY) or
+ * 'info' / 'json' (CI/piped).
  *
  * **Tri-state review** (default visible):
  *   - `review.enabled` rules → `status: 'pending'`, surfaced in their own
@@ -41,17 +40,43 @@ import { renderReview, renderReviewJson } from './reporter/review.js';
 import type { ConfigLayer, RunnerScope, Severity } from './types.js';
 import { renderBanner } from './cli/banner.js';
 import { loadLlmText } from './llm.js';
+import { createLogger, type Logger } from './logging/index.js';
+import { isLogLevel, type LogLevel } from './logging/levels.js';
 
-const VERSION = '0.1.0';
+const VERSION = '0.2.0';
 
 const program = new Command();
 
 program
   .name('regent')
-  .description('The enforcer of [.stbl] house rules')
-  .version(VERSION);
+  .description('Multi-mode static analysis framework for LLM agents')
+  .version(VERSION)
+  .option('--log-level <level>', 'log level (trace|debug|info|warn|error|fatal)')
+  .option('--log-format <fmt>', 'log format (text|json)')
+  .hook('preAction', (thisCommand) => {
+    const opts = thisCommand.opts();
+    const envLevel = process.env['STBL_REGENT_LOG_LEVEL'];
+    const envFormat = process.env['STBL_REGENT_LOG_FORMAT'];
+    const levelRaw = (opts['logLevel'] as string | undefined) ?? envLevel ?? 'info';
+    const formatRaw =
+      (opts['logFormat'] as string | undefined) ??
+      envFormat ??
+      (process.stdout.isTTY ? 'text' : 'json');
+    const level: LogLevel = isLogLevel(levelRaw) ? levelRaw : 'info';
+    const format: 'text' | 'json' = formatRaw === 'json' ? 'json' : 'text';
+    const logger = createLogger({ level, format, scope: 'cli' });
+    (globalThis as { __regentLogger?: Logger }).__regentLogger = logger;
+  });
 
 program.addHelpText('beforeAll', renderBanner({ useColor: pc.isColorSupported }));
+
+function getLogger(): Logger {
+  const logger = (globalThis as { __regentLogger?: Logger }).__regentLogger;
+  if (!logger) {
+    return createLogger({ level: 'info', format: 'text', scope: 'cli' });
+  }
+  return logger;
+}
 
 program
   .command('check')
@@ -152,7 +177,7 @@ async function runCheck(options: CheckOptions): Promise<number> {
   try {
     loadedRules = await loadRules({ repoRoot: cwd });
   } catch (err) {
-    console.error(pc.red(`regent: failed to load rules: ${(err as Error).message}`));
+    getLogger().error({ err: { message: (err as Error).message } }, 'failed to load rules');
     return 1;
   }
 
@@ -314,7 +339,7 @@ async function runExplain(ruleId: string, _options: ListOptions): Promise<void> 
   const loaded = await loadRules({ repoRoot: cwd });
   const rule = loaded.rules.find((r) => r.spec.id === ruleId);
   if (!rule) {
-    console.error(pc.red(`regent: no rule with id "${ruleId}"`));
+    getLogger().error({ ruleId }, 'rule not found');
     process.exitCode = 1;
     return;
   }
@@ -349,7 +374,7 @@ async function runAccept(
     : joinPath(cwd, options.config as string ?? 'tools/audit/config.local.ts');
 
   if (!options.reason) {
-    console.error(pc.red('regent: --reason is required for accept (audit-trail).'));
+    getLogger().error({}, '--reason is required for accept (audit-trail)');
     return 2;
   }
 
@@ -380,7 +405,7 @@ async function runReject(
   const cwd = options.config ? joinPath(cwdSafe(options.config)) : cwdSafe(process.cwd());
   const { path, line } = parseTarget(pathLine);
   if (line === undefined) {
-    console.error(pc.red('regent: reject requires <path>:<line>, not <path> alone.'));
+    getLogger().error({}, 'reject requires <path>:<line>, not <path> alone');
     return 2;
   }
   const rejectionsPath = joinPath(cwd, 'tools', 'audit', '.rejections.json');
@@ -542,7 +567,7 @@ function runInit(): void {
   const cwd = process.cwd();
   const auditDir = `${cwd}/tools/audit`;
   if (existsSync(auditDir)) {
-    console.error(pc.red(`regent: ${auditDir} already exists`));
+    getLogger().error({ auditDir }, 'init refused — directory already exists');
     process.exitCode = 1;
     return;
   }
@@ -678,6 +703,6 @@ program.parseAsync(process.argv).catch((err: unknown) => {
   if (e.code === 'commander.helpDisplayed' || e.code === 'commander.help' || e.code === 'commander.versionDisplayed') {
     process.exit(0);
   }
-  console.error(pc.red(`regent: ${e.message ?? String(err)}`));
+  getLogger().error({ err: { message: e.message ?? String(err) } }, 'cli fatal');
   process.exit(1);
 });
