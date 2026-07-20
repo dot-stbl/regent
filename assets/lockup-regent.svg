@@ -3,33 +3,52 @@
   lockup-regent.svg — "regent by .stbl" lockup (light surface)
 
   Generated from assets/stbl/assets/lockup-template.svg per .stbl brand
-  guidelines. Product name "regent" (6 chars) — positions adjusted
-  proportionally tighter than the generic template (11 chars).
+  guidelines. Brand refinements applied (v0.1.0):
 
-  Lockup pattern: ProductName + "by" + .stbl mark + "stbl"
-  Mark: 32x32 black square (simplified — see assets/stbl/assets/logo.svg
-  for the full 64x64 mark with white inner).
+  - Subtle background-frame (opacity 0.04) encloses the lockup
+  - Top accent line (opacity 0.45) + bottom accent line (opacity 0.65)
+    form an envelope binding the composition into one visual block
+  - Tighter kerning: "regent" → "by" gap reduced (one visual unit)
+  - Same 9-level opacity hierarchy as header-{dark,light}.svg
+
+  Lockup pattern: ProductName + "by" + .stbl mark + "stbl" wordmark
+  Mark: 32×32 black square (simplified — see assets/stbl/assets/logo.svg
+  for the full 64×64 mark with white inner).
 -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 160"
      role="img" aria-label="regent by .stbl">
   <title>regent by .stbl</title>
+
+  <!-- Subtle background-frame (enclosure) -->
+  <rect x="0" y="20" width="700" height="120" rx="4"
+        fill="#000" opacity="0.04"/>
+
+  <!-- Top accent line (envelope upper edge) -->
+  <rect x="0" y="18" width="700" height="1.5" fill="#c44569" opacity="0.45"/>
+
   <text x="0" y="105"
         font-family="'JetBrains Mono', ui-monospace, monospace"
         font-size="100"
         font-weight="700"
         fill="#000"
         letter-spacing="-4">regent</text>
-  <text x="350" y="105"
+
+  <text x="370" y="105"
         font-family="'JetBrains Mono', ui-monospace, monospace"
         font-size="48"
         font-weight="400"
         fill="#888"
         letter-spacing="-1">by</text>
-  <rect x="430" y="73" width="32" height="32" fill="#000"/>
-  <text x="472" y="105"
+
+  <rect x="450" y="73" width="32" height="32" fill="#000"/>
+
+  <text x="492" y="105"
         font-family="'JetBrains Mono', ui-monospace, monospace"
         font-size="100"
         font-weight="700"
         fill="#000"
         letter-spacing="-3">stbl</text>
+
+  <!-- Bottom accent line (envelope lower edge — primary 0.65) -->
+  <rect x="0" y="142" width="700" height="1.5" fill="#c44569" opacity="0.65"/>
 </svg>

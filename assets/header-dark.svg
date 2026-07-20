@@ -1,23 +1,31 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- header-dark.svg — regent banner (dark surface)
 
-     Lockup: regent mark (3 abstract thin strokes) + "regent" wordmark +
-     canonical "by .stbl" lockup (by connector + .stbl mark + stbl wordmark),
-     tied together as ONE visual block by a skvoznoy accent line (#c44569)
-     running horizontally through the entire composition.
+     Lockup grouped as ONE visual block:
+     - subtle background-frame (opacity 0.04) encloses the lockup
+     - top accent line (opacity 0.45) + bottom accent line (opacity 0.65)
+       form an envelope binding the composition
+     - baseline accent line (opacity 0.35) ties mark + wordmark + tag
+       along their common baseline
+     - mark strokes fade center-out (0.85 / 0.55 / 0.85) for visual rhythm
 
-     "by .stbl" lockup follows the .stbl brand spec — see
-     assets/stbl/assets/lockup-template.svg for the canonical pattern.
-
-     Opacity hierarchy:
+     Opacity hierarchy (9 levels — full transparency ladder):
        1.00  primary     — wordmark "regent"
-       0.85  secondary   — wordmark "stbl" (subordinate to "regent")
-       0.75  subordinate — regent mark strokes
-       0.65  accent      — skvoznoy line (#c44569)
+       0.85  secondary   — outer regent marks + "stbl" wordmark
+       0.65  accent-A    — bottom skvoznoy line (#c44569)
+       0.55  accent-B    — middle regent mark (gradient valley)
+       0.45  tertiary    — top accent line + "by" + separator dot
+       0.35  connector   — baseline accent line (#c44569)
+       0.25  subtle      — (reserved for future gradient stops)
        0.07  ambient     — background dot grid
      Solid fills:
-       #fff  mark + "stbl" (brand visibility)
-       #888  "by" connector (subordinate color, brand spec)
+       #fff  mark + "stbl" wordmark + separator dot
+       #888  "by" connector (brand spec subordinate color)
+       #000  surface
+
+     Tighter kerning vs v0.1.0: mark→wordmark gap 11px (was 31),
+     wordmark→tag gap 11px (was 31) — denser composition reads as
+     one unit instead of three separate elements.
 
      Font: JetBrains Mono (mono), weight 700 on wordmarks, 400 on "by".
      ViewBox 1200x200 — fits README hero <picture>. -->
@@ -34,29 +42,42 @@
   <rect width="1200" height="200" fill="#000"/>
   <rect width="1200" height="200" fill="url(#dots)"/>
 
-  <!-- Lockup — one visual block -->
+  <!-- ONE VISUAL BLOCK -->
 
-  <!-- Regent mark: 3 vertical strokes (subordinate opacity 0.75) -->
-  <rect x="80"  y="75" width="3" height="70" fill="#fff" opacity="0.75"/>
-  <rect x="93"  y="75" width="3" height="70" fill="#fff" opacity="0.75"/>
-  <rect x="106" y="75" width="3" height="70" fill="#fff" opacity="0.75"/>
+  <!-- Subtle background-frame: encloses lockup at very low opacity -->
+  <rect x="72" y="64" width="720" height="112" rx="4"
+        fill="#fff" opacity="0.04"/>
 
-  <!-- Wordmark: "regent" (primary opacity 1.0) -->
-  <text x="140" y="132" font-size="92" font-weight="700" letter-spacing="-3"
+  <!-- Top accent line (envelope upper edge) -->
+  <rect x="80" y="62" width="1040" height="1" fill="#c44569" opacity="0.45"/>
+
+  <!-- Regent mark: 3 strokes with center-fading gradient -->
+  <rect x="84"  y="75" width="3" height="70" fill="#fff" opacity="0.85"/>
+  <rect x="97"  y="75" width="3" height="70" fill="#fff" opacity="0.55"/>
+  <rect x="110" y="75" width="3" height="70" fill="#fff" opacity="0.85"/>
+
+  <!-- Wordmark "regent" (primary opacity 1.0) — tightened kerning -->
+  <text x="132" y="132" font-size="92" font-weight="700" letter-spacing="-3"
         fill="#fff" opacity="1.0">regent</text>
+
+  <!-- Separator dot (tertiary 0.45) -->
+  <circle cx="445" cy="117" r="3" fill="#fff" opacity="0.45"/>
 
   <!-- Canonical "by .stbl" lockup (per assets/stbl/assets/lockup-template.svg) -->
   <!-- "by" connector — brand spec fill #888, weight 400 -->
-  <text x="475" y="132" font-size="28" font-weight="400" letter-spacing="-0.5"
-        fill="#888">by</text>
+  <text x="455" y="132" font-size="28" font-weight="400" letter-spacing="-0.5"
+        fill="#888" opacity="0.45">by</text>
 
   <!-- .stbl mark — 16×16 in header context (32×32 in standalone lockup-regent.svg) -->
-  <rect x="503" y="116" width="16" height="16" fill="#fff"/>
+  <rect x="486" y="116" width="16" height="16" fill="#fff"/>
 
   <!-- "stbl" wordmark (secondary opacity 0.85) -->
-  <text x="525" y="132" font-size="28" font-weight="700" letter-spacing="-0.5"
+  <text x="510" y="132" font-size="28" font-weight="700" letter-spacing="-0.5"
         fill="#fff" opacity="0.85">stbl</text>
 
-  <!-- Skvoznoy accent line: spans canvas, ties mark+wordmark+lockup into one block -->
+  <!-- Baseline accent: ties mark+wordmark+tag along common baseline (y=148) -->
+  <rect x="84" y="148" width="688" height="0.5" fill="#c44569" opacity="0.35"/>
+
+  <!-- Bottom accent line (envelope lower edge — primary 0.65) -->
   <rect x="80" y="158" width="1040" height="1.5" fill="#c44569" opacity="0.65"/>
 </svg>

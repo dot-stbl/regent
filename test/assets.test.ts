@@ -83,8 +83,12 @@ describe('assets/header SVGs', () => {
       expect(LIGHT).toMatch(/fill="#c44569"/);
     });
 
-    it('implement the 5-level opacity hierarchy', () => {
-      const requiredOpacities = ['1.0', '0.85', '0.75', '0.65', '0.07'];
+    it('implement the 9-level opacity hierarchy (brand refined v0.1.0)', () => {
+      // 1.00 (primary wordmark), 0.85 (secondary + outer marks),
+      // 0.65 (bottom accent), 0.55 (middle mark gradient valley),
+      // 0.45 (top accent + separator + "by"), 0.35 (baseline accent),
+      // 0.07 (ambient dot grid)
+      const requiredOpacities = ['1.0', '0.85', '0.65', '0.55', '0.45', '0.35', '0.07'];
       for (const svg of [DARK, LIGHT]) {
         for (const opacity of requiredOpacities) {
           expect(svg, `missing opacity=${opacity}`).toContain(`opacity="${opacity}"`);
@@ -92,9 +96,32 @@ describe('assets/header SVGs', () => {
       }
     });
 
-    it('regent mark has 3 vertical strokes (lockup geometry)', () => {
+    it('regent mark has 3 vertical strokes with center-fading gradient', () => {
       const strokeMatches = DARK.match(/<rect[^>]*width="3"[^>]*height="70"/g) ?? [];
       expect(strokeMatches.length).toBe(3);
+      // Verify gradient opacity: outer strokes 0.85, middle 0.55
+      // (attribute order may vary — match independently)
+      expect(DARK).toMatch(/<rect[^>]*opacity="0\.85"[^>]*\/>/);
+      expect(DARK).toMatch(/<rect[^>]*opacity="0\.55"[^>]*\/>/);
+    });
+
+    it('accent envelope: top (0.45) + bottom (0.65) lines + baseline (0.35)', () => {
+      // Three horizontal accent lines in #c44569, distinct opacities
+      expect(DARK).toMatch(/<rect[^>]*fill="#c44569"[^>]*opacity="0\.45"[^>]*\/>/);
+      expect(DARK).toMatch(/<rect[^>]*fill="#c44569"[^>]*opacity="0\.65"[^>]*\/>/);
+      expect(DARK).toMatch(/<rect[^>]*fill="#c44569"[^>]*opacity="0\.35"[^>]*\/>/);
+    });
+
+    it('background-frame encloses the lockup at 0.04 opacity', () => {
+      // Subtle frame rect: rx="4", opacity 0.04, fill matches surface fg
+      const darkFrame = DARK.match(/<rect[^>]*rx="4"[^>]*opacity="0\.04"/);
+      const lightFrame = LIGHT.match(/<rect[^>]*rx="4"[^>]*opacity="0\.04"/);
+      expect(darkFrame).toBeTruthy();
+      expect(lightFrame).toBeTruthy();
+      // Dark variant: fill="#fff" (white-on-black surface)
+      expect(darkFrame![0]).toContain('fill="#fff"');
+      // Light variant: fill="#000" (black-on-white surface)
+      expect(lightFrame![0]).toContain('fill="#000"');
     });
 
     it('skvoznoy accent line spans at least 1000px', () => {

@@ -2,10 +2,8 @@
 <!-- header-light.svg — regent banner (light surface)
 
      Mirror of header-dark.svg with #000 foreground. Same lockup
-     structure, same opacity hierarchy, same skvoznoy accent line.
-
-     "by .stbl" lockup follows the .stbl brand spec — see
-     assets/stbl/assets/lockup-template.svg for the canonical pattern. -->
+     structure, same 9-level opacity hierarchy, same accent envelope
+     binding the composition into one visual block. -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 200"
      font-family="'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace">
 
@@ -19,29 +17,41 @@
   <rect width="1200" height="200" fill="#fff"/>
   <rect width="1200" height="200" fill="url(#dots)"/>
 
-  <!-- Lockup — one visual block -->
+  <!-- ONE VISUAL BLOCK -->
 
-  <!-- Regent mark: 3 vertical strokes (subordinate opacity 0.75) -->
-  <rect x="80"  y="75" width="3" height="70" fill="#000" opacity="0.75"/>
-  <rect x="93"  y="75" width="3" height="70" fill="#000" opacity="0.75"/>
-  <rect x="106" y="75" width="3" height="70" fill="#000" opacity="0.75"/>
+  <!-- Subtle background-frame: encloses lockup at very low opacity -->
+  <rect x="72" y="64" width="720" height="112" rx="4"
+        fill="#000" opacity="0.04"/>
 
-  <!-- Wordmark: "regent" (primary opacity 1.0) -->
-  <text x="140" y="132" font-size="92" font-weight="700" letter-spacing="-3"
+  <!-- Top accent line (envelope upper edge) -->
+  <rect x="80" y="62" width="1040" height="1" fill="#c44569" opacity="0.45"/>
+
+  <!-- Regent mark: 3 strokes with center-fading gradient -->
+  <rect x="84"  y="75" width="3" height="70" fill="#000" opacity="0.85"/>
+  <rect x="97"  y="75" width="3" height="70" fill="#000" opacity="0.55"/>
+  <rect x="110" y="75" width="3" height="70" fill="#000" opacity="0.85"/>
+
+  <!-- Wordmark "regent" (primary opacity 1.0) -->
+  <text x="132" y="132" font-size="92" font-weight="700" letter-spacing="-3"
         fill="#000" opacity="1.0">regent</text>
 
-  <!-- Canonical "by .stbl" lockup (per assets/stbl/assets/lockup-template.svg) -->
-  <!-- "by" connector — brand spec fill #888, weight 400 -->
-  <text x="475" y="132" font-size="28" font-weight="400" letter-spacing="-0.5"
-        fill="#888">by</text>
+  <!-- Separator dot (tertiary 0.45) -->
+  <circle cx="445" cy="117" r="3" fill="#000" opacity="0.45"/>
 
-  <!-- .stbl mark — 16×16 in header context (32×32 in standalone lockup-regent.svg) -->
-  <rect x="503" y="116" width="16" height="16" fill="#000"/>
+  <!-- Canonical "by .stbl" lockup -->
+  <text x="455" y="132" font-size="28" font-weight="400" letter-spacing="-0.5"
+        fill="#888" opacity="0.45">by</text>
+
+  <!-- .stbl mark -->
+  <rect x="486" y="116" width="16" height="16" fill="#000"/>
 
   <!-- "stbl" wordmark (secondary opacity 0.85) -->
-  <text x="525" y="132" font-size="28" font-weight="700" letter-spacing="-0.5"
+  <text x="510" y="132" font-size="28" font-weight="700" letter-spacing="-0.5"
         fill="#000" opacity="0.85">stbl</text>
 
-  <!-- Skvoznoy accent line: spans canvas, ties mark+wordmark+lockup into one block -->
+  <!-- Baseline accent: ties mark+wordmark+tag -->
+  <rect x="84" y="148" width="688" height="0.5" fill="#c44569" opacity="0.35"/>
+
+  <!-- Bottom accent line (envelope lower edge — primary 0.65) -->
   <rect x="80" y="158" width="1040" height="1.5" fill="#c44569" opacity="0.65"/>
 </svg>

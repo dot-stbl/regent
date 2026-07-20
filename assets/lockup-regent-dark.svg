@@ -2,31 +2,44 @@
 <!--
   lockup-regent-dark.svg — "regent by .stbl" lockup (dark surface)
 
-  Mirror of lockup-regent.svg with #fff foreground. For OG cards,
-  --version banner, and any dark-surface use of the lockup.
-
-  Lockup pattern: ProductName + "by" + .stbl mark (inverted) + "stbl"
+  Mirror of lockup-regent.svg with #fff foreground. Same brand
+  refinements: subtle background-frame, accent envelope, tighter
+  kerning, same opacity hierarchy as header-{dark,light}.svg.
 -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 160"
      role="img" aria-label="regent by .stbl">
   <title>regent by .stbl</title>
+
+  <!-- Subtle background-frame (enclosure) -->
+  <rect x="0" y="20" width="700" height="120" rx="4"
+        fill="#fff" opacity="0.04"/>
+
+  <!-- Top accent line (envelope upper edge) -->
+  <rect x="0" y="18" width="700" height="1.5" fill="#c44569" opacity="0.45"/>
+
   <text x="0" y="105"
         font-family="'JetBrains Mono', ui-monospace, monospace"
         font-size="100"
         font-weight="700"
         fill="#fff"
         letter-spacing="-4">regent</text>
-  <text x="350" y="105"
+
+  <text x="370" y="105"
         font-family="'JetBrains Mono', ui-monospace, monospace"
         font-size="48"
         font-weight="400"
         fill="#888"
         letter-spacing="-1">by</text>
-  <rect x="430" y="73" width="32" height="32" fill="#fff"/>
-  <text x="472" y="105"
+
+  <rect x="450" y="73" width="32" height="32" fill="#fff"/>
+
+  <text x="492" y="105"
         font-family="'JetBrains Mono', ui-monospace, monospace"
         font-size="100"
         font-weight="700"
         fill="#fff"
         letter-spacing="-3">stbl</text>
+
+  <!-- Bottom accent line (envelope lower edge — primary 0.65) -->
+  <rect x="0" y="142" width="700" height="1.5" fill="#c44569" opacity="0.65"/>
 </svg>
