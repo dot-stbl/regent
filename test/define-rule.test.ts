@@ -34,7 +34,7 @@ describe('defineRule', () => {
 describe('defineConfig', () => {
   it('returns the config unchanged', () => {
     const cfg = defineConfig({
-      extends: ['@stbl/regent/presets/csharp'],
+      extends: ['@dot-stbl/regent/presets/csharp'],
       rules: { disable: [], override: {}, add: [] },
     });
     expect(cfg.extends).toHaveLength(1);

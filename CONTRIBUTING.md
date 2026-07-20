@@ -1,7 +1,7 @@
-# Contributing to `@stbl/regent`
+# Contributing to `@dot-stbl/regent`
 
 > **`.stbl` engineering rules** — see [`.agents/rules/`](.agents/rules) for
-> the standards every PR must comply with. The CLI (run `bunx @stbl/regent
+> the standards every PR must comply with. The CLI (run `bunx @dot-stbl/regent
 > check` in your own repo) catches `naming-and-types`, `code-shape`,
 > `anti-patterns` violations + project-specific conventions from
 > `~/.agents/rules/csharp/`.
@@ -11,10 +11,10 @@
 1. Create the prose `*.md` file alongside your rule. Use H2/H3 headings;
    subsequent H1 becomes the rule id's documentation link.
 2. Create the executable `*.rule.ts` file next to the prose. Use
-   `defineRule` from `@stbl/regent` for type-safe narrowing:
+   `defineRule` from `@dot-stbl/regent` for type-safe narrowing:
 
    ```ts
-   import { defineRule } from '@stbl/regent';
+   import { defineRule } from '@dot-stbl/regent';
 
    export default defineRule({
      id: 'csharp.my-new-rule',
@@ -96,7 +96,7 @@ Once a finding is `pending`, the team can:
 
 - [ ] `bun test` exits 0; new rule fires positive fixture, ignores negative.
 - [ ] `bun run typecheck` exits 0.
-- [ ] `bun run build && bunx @stbl/regent check --all` exits 0 inside `regent/`.
+- [ ] `bun run build && bunx @dot-stbl/regent check --all` exits 0 inside `regent/`.
   (meta — the tool dogfoods itself.)
 - [ ] Commit subject follows `[.stbl](feat/<area>): ...` (see `commit-format.md`).
 - [ ] No `private` methods in production code, no `ThrowIf*`, no
@@ -108,4 +108,4 @@ Once a finding is `pending`, the team can:
    can break between minors).
 2. `git tag v0.X.Y && git push --tags`
 3. `.github/workflows/release.yml` runs OIDC trusted-publishing to
-   GitHub Packages under `@stbl/regent`.
+   GitHub Packages under `@dot-stbl/regent`.

@@ -1,5 +1,5 @@
 {
-  "name": "@stbl/regent",
+  "name": "@dot-stbl/regent",
   "version": "0.1.0",
   "description": "The enforcer of [.stbl] house rules — grep/regex rule registry for static analysis",
   "license": "MIT",
@@ -26,7 +26,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "lint": "echo 'lint pending — eslint config in next PR' && exit 0",
+    "lint": "eslint . --max-warnings 0",
     "test": "vitest run",
     "test:watch": "vitest",
     "smoke": "bun run build && node dist/cli.js check --help"
@@ -42,8 +42,11 @@
     "tinyglobby": "^0.2.0"
   },
   "devDependencies": {
+    "@eslint/js": "^9.0.0",
     "@types/node": "^22.10.0",
+    "eslint": "^9.0.0",
     "typescript": "^5.7.0",
+    "typescript-eslint": "^8.0.0",
     "vitest": "^2.1.0"
   },
   "publishConfig": {
