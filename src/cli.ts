@@ -29,6 +29,7 @@
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { Command } from 'commander';
 import pc from 'picocolors';
@@ -38,7 +39,7 @@ import { runRules } from './runner.js';
 import { renderText, renderSummary } from './reporter/text.js';
 import { renderSarif } from './reporter/sarif.js';
 import { renderReview, renderReviewJson } from './reporter/review.js';
-import type { ConfigLayer, RunnerScope, Severity } from './types.js';
+import type { AcceptEntry, Finding, RunnerScope, Severity } from './types.js';
 import { renderBanner } from './cli/banner.js';
 import { loadLlmText } from './llm.js';
 import { routeLlm } from './llm-router.js';
@@ -152,7 +153,7 @@ program
   .argument('<rule-id>', 'rule id (e.g. csharp.no-todo-without-owner)')
   .argument('<target>', 'path[:line] — glob or absolute path with optional line')
   .requiredOption('--reason <reason>', 'audit-trail reason (required, max 500 chars)')
-  .option('--config <path>', 'config.local.ts path', 'tools/audit/config.local.ts')
+  .option('--config <path>', 'config path (default: config.local.ts; config.ts with --scope)')
   .option('--scope', 'write to commit-shared config.ts instead of local.ts')
   .action(async (ruleId: string, target: string, options) => {
     const exitCode = await runAccept(ruleId, target, options);
@@ -358,32 +359,33 @@ async function runCheck(options: CheckOptions): Promise<number> {
     process.stdout.write(output);
   }
 
-  return computeExitCode(findings);
+  // Exit code is computed on the FULL finding set (result.findings), not
+  // the display-filtered `findings` — `--severity` / `--no-review` change
+  // what is printed, never the exit code.
+  return computeExitCode(result.findings, (options.exitOn as Severity) ?? 'error');
 }
 
 /**
- * Tri-state exit-code:
- * - `status: 'violation'` findings always fail at exit-on >= severity.
- * - `status: 'pending'` review findings fail only when their rule's
- *   `review.exitBehavior === 'unreviewed-fails'` AND no accept entry
- *   matches them. Since the runner already filters accepted findings
- *   out of `findings`, we just check `pending + unreviewed-fails`.
- * - `status: 'accepted'` findings never fail.
+ * Tri-state exit-code, gated by the `--exit-on` severity threshold:
+ * - `status: 'violation'` fails when its severity >= `exitOn`.
+ * - `status: 'pending'` review findings fail only when the rule is
+ *   `review.exitBehavior === 'unreviewed-fails'` AND severity >= `exitOn`
+ *   (accepted findings are already filtered out by the runner).
+ * - `status: 'accepted'` never fails.
  */
-function computeExitCode(findings: readonly { status: string; severity: Severity }[]): number {
+function computeExitCode(findings: readonly Finding[], exitOn: Severity): number {
+  const threshold = severityRank(exitOn);
   for (const f of findings) {
+    if (severityRank(f.severity) < threshold) {
+      continue;
+    }
     if (f.status === 'violation') {
       return 1;
     }
-    if (f.status === 'pending') {
-      // We don't have rule-level exitBehavior here, so callers
-      // (runCheck) should default to severity-gated exit-on. Pending
-      // review never auto-fails; the CLI passes --exit-on to set the
-      // threshold for violations only.
-      continue;
+    if (f.status === 'pending' && f.review?.exitBehavior === 'unreviewed-fails') {
+      return 1;
     }
   }
-  void (findings);
   return 0;
 }
 
@@ -489,9 +491,12 @@ async function runAccept(
   options: AcceptOptions,
 ): Promise<number> {
   const cwd = process.cwd();
-  const configPath = options.scope
-    ? joinPath(cwd, options.config as string ?? 'tools/audit/config.ts')
-    : joinPath(cwd, options.config as string ?? 'tools/audit/config.local.ts');
+  // `--config` overrides the target; otherwise `--scope` selects the
+  // committed config.ts, and the default is the gitignored config.local.ts.
+  const configPath = joinPath(
+    cwd,
+    options.config ?? (options.scope ? 'tools/audit/config.ts' : 'tools/audit/config.local.ts'),
+  );
 
   if (!options.reason) {
     getLogger().error({}, '--reason is required for accept (audit-trail)');
@@ -499,19 +504,20 @@ async function runAccept(
   }
 
   const { path, line } = parseTarget(target);
-
-  const current = loadConfigFile(configPath);
-  const accept = [...(current.rules?.accept ?? []), {
+  const entry: AcceptEntry = {
     ruleId,
     path,
     ...(line !== undefined ? { line } : {}),
     reason: options.reason,
-  }];
+  };
 
-  writeConfigFile(configPath, {
-    ...current,
-    rules: { ...current.rules, accept },
-  });
+  try {
+    upsertAcceptEntry(configPath, entry);
+  } catch (err) {
+    getLogger().error({ err: { message: (err as Error).message } }, 'failed to write accept entry');
+    return 1;
+  }
+
   console.log(pc.green(`✓ added accept entry to ${configPath}`));
   console.log(pc.dim(`  ${ruleId} → ${target}`));
   return 0;
@@ -571,116 +577,89 @@ function cwdSafe(input: string): string {
   return input;
 }
 
-function loadConfigFile(configPath: string): ConfigLayer {
+/**
+ * Serialize an accept entry as a single-quoted, escaped TS object literal
+ * for insertion into a config's `accept: [ ... ]` array.
+ */
+function serializeAcceptEntry(entry: AcceptEntry): string {
+  const q = (s: string): string => `'${s.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
+  const fields = [`ruleId: ${q(entry.ruleId)}`, `path: ${q(entry.path)}`];
+  if (entry.line !== undefined) {
+    fields.push(`line: ${entry.line}`);
+  }
+  fields.push(`reason: ${q(entry.reason ?? '')}`);
+  return `{ ${fields.join(', ')} }`;
+}
+
+/**
+ * Add an accept entry to a config file WITHOUT rewriting the rest of it.
+ *
+ * The previous implementation regex-scraped only the `accept` array and
+ * re-emitted the whole module, silently dropping `detect`/`disable`/
+ * `override`/`add`. This splices the entry into the existing
+ * `accept: [ ... ]` (or creates the minimal nesting) and leaves every
+ * other section byte-for-byte intact.
+ */
+function upsertAcceptEntry(configPath: string, entry: AcceptEntry): void {
+  const serialized = serializeAcceptEntry(entry);
+
   if (!existsSync(configPath)) {
-    return { rules: {} };
+    mkdirSync(dirname(configPath), { recursive: true });
+    writeFileSync(configPath, scaffoldConfigWithAccept(serialized), 'utf8');
+    return;
   }
-  try {
-    const text = readFileSync(configPath, 'utf8');
-    // Config files are loaded dynamically; for accept/reject we don't
-    // need to re-evaluate them — just preserve the contents. We
-    // write back a hand-crafted JS module that the loader can import.
-    const parsed = parseConfigText(text);
-    return parsed ?? { rules: {} };
-  } catch {
-    return { rules: {} };
+
+  const text = readFileSync(configPath, 'utf8');
+
+  // 1. An `accept: [` array already exists → insert right after `[`.
+  if (/accept\s*:\s*\[/.test(text)) {
+    writeFileSync(
+      configPath,
+      text.replace(/accept\s*:\s*\[/, (m) => `${m}\n      ${serialized},`),
+      'utf8',
+    );
+    return;
   }
+
+  // 2. A `rules: {` block exists → give it an `accept` array.
+  if (/rules\s*:\s*\{/.test(text)) {
+    writeFileSync(
+      configPath,
+      text.replace(/rules\s*:\s*\{/, (m) => `${m}\n    accept: [\n      ${serialized},\n    ],`),
+      'utf8',
+    );
+    return;
+  }
+
+  // 3. A bare `defineConfig({` → add the whole `rules.accept` nesting.
+  if (/defineConfig\s*\(\s*\{/.test(text)) {
+    writeFileSync(
+      configPath,
+      text.replace(/defineConfig\s*\(\s*\{/, (m) => `${m}\n  rules: {\n    accept: [\n      ${serialized},\n    ],\n  },`),
+      'utf8',
+    );
+    return;
+  }
+
+  // 4. Unrecognized shape → refuse rather than clobber.
+  throw new Error(
+    `could not find a defineConfig/rules block in ${configPath}; add the entry manually: ${serialized}`,
+  );
 }
 
-function parseConfigText(text: string): ConfigLayer | null {
-  const config: { rules: { accept?: Array<Record<string, unknown>>; disable?: string[]; override?: Record<string, unknown>; add?: unknown[] } } = { rules: {} };
-  const acceptMatch = text.match(/accept:\s*\[([\s\S]*?)\]/);
-  if (!acceptMatch) {
-    return null;
-  }
-  const body = acceptMatch[1] ?? '';
-  const entries: Array<Record<string, unknown>> = [];
-  const entryRegex = /\{\s*ruleId:\s*['"]([^'"]+)['"]\s*,\s*path:\s*['"]([^'"]+)['"]\s*(?:,\s*line:\s*(\d+))?\s*,\s*reason:\s*['"]([^'"]*)['"]\s*\}/g;
-  let m: RegExpExecArray | null;
-  while ((m = entryRegex.exec(body)) !== null) {
-    const ruleId = m[1];
-    const path = m[2];
-    const lineStr = m[3];
-    const reason = m[4] ?? '';
-    const line = lineStr ? Number.parseInt(lineStr, 10) : undefined;
-    entries.push({
-      ruleId,
-      path,
-      ...(line !== undefined ? { line } : {}),
-      reason,
-    });
-  }
-  if (entries.length > 0) {
-    config.rules.accept = entries;
-  }
-  void text;
-  // Best-effort parse — we re-emit config on write, so anything we
-  // couldn't parse is OK to drop as long as accept-list survives.
-  return config as unknown as ConfigLayer;
-}
-
-function writeConfigFile(configPath: string, config: ConfigLayer): void {
-  const acceptList = config.rules?.accept ?? [];
-  const disableList = config.rules?.disable ?? [];
-  const overrideMap = config.rules?.override ?? {};
-  const addList = config.rules?.add ?? [];
-
-  const lines: string[] = [];
-  lines.push("import { defineConfig } from '@dot-stbl/regent';");
-  lines.push('');
-  lines.push('export default defineConfig({');
-  if (disableList.length > 0) {
-    lines.push('  rules: {');
-    lines.push('    disable: [');
-    for (const id of disableList) {
-      lines.push(`      '${id.replace(/'/g, "\\'")}',`);
-    }
-    lines.push('    ],');
-  }
-  if (Object.keys(overrideMap).length > 0) {
-    lines.push('    override: {');
-    for (const [id, ov] of Object.entries(overrideMap)) {
-      const fields: string[] = [];
-      if (ov.severity) fields.push(`severity: '${ov.severity}'`);
-      if (ov.message) fields.push(`message: '${ov.message.replace(/'/g, "\\'")}'`);
-      lines.push(`      '${id.replace(/'/g, "\\'")}': { ${fields.join(', ')} },`);
-    }
-    lines.push('    },');
-  }
-  if (addList.length > 0) {
-    lines.push('    add: [');
-    lines.push(`      // ${addList.length} rule(s) — re-emit manually`);
-    lines.push('      null,');
-    lines.push('    ],');
-  }
-  if (acceptList.length > 0) {
-    if (!lines.includes('  rules: {')) {
-      lines.push('  rules: {');
-    }
-    if (disableList.length === 0 && Object.keys(overrideMap).length === 0 && addList.length === 0) {
-      lines.push('    rules: {');
-    }
-    lines.push('    accept: [');
-    for (const entry of acceptList) {
-      const fields = [`ruleId: '${entry.ruleId.replace(/'/g, "\\'")}'`, `path: '${entry.path.replace(/'/g, "\\'")}'`];
-      if (entry.line !== undefined) {
-        fields.push(`line: ${entry.line}`);
-      }
-      fields.push(`reason: '${(entry.reason ?? '').replace(/'/g, "\\'")}'`);
-      lines.push(`      { ${fields.join(', ')} },`);
-    }
-    lines.push('    ],');
-    if (disableList.length === 0 && Object.keys(overrideMap).length === 0 && addList.length === 0) {
-      lines.push('    },');
-    }
-  }
-  if (lines.includes('  rules: {')) {
-    lines.push('  },');
-  }
-  lines.push('});');
-  lines.push('');
-
-  writeFileSync(configPath, lines.join('\n'), 'utf8');
+function scaffoldConfigWithAccept(serializedEntry: string): string {
+  return [
+    "import { defineConfig } from '@dot-stbl/regent';",
+    '',
+    'export default defineConfig({',
+    '  rules: {',
+    '    accept: [',
+    `      ${serializedEntry},`,
+    '    ],',
+    '  },',
+    '});',
+    '',
+  ].join('\n');
 }
 
 function runInit(): void {
