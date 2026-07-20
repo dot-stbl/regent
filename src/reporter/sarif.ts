@@ -70,6 +70,8 @@ interface SarifResult {
     readonly guidance?: string;
     readonly exitBehavior?: 'no-fail' | 'unreviewed-fails';
     readonly status?: 'pending' | 'accepted' | 'violation';
+    readonly kind?: 'detect' | 'fix';
+    readonly fixable?: boolean;
   };
 }
 
@@ -104,15 +106,26 @@ export function renderSarif(
 
   const results: SarifResult[] = surfaced.map((f) => {
     const contextSnippet = f.context.lines.join('\n');
+    // v0.2: each finding carries its kind (detect vs fix) so SARIF
+    // consumers can distinguish "would change" from "would only report".
+    // The kind is derived from the underlying rule spec — we read it
+    // from `rules` (the input array) via the ruleId.
+    const ruleSpec = rules.find((r) => r.spec.id === f.ruleId)?.spec;
+    const kind: 'detect' | 'fix' | undefined =
+      ruleSpec && 'find' in ruleSpec && 'replace' in ruleSpec ? 'fix' : 'detect';
     const properties: SarifResult['properties'] = f.review
       ? {
           review: true,
           status: f.status,
+          ...(kind !== undefined ? { kind } : {}),
+          fixable: kind === 'fix',
           ...(f.review.guidance !== undefined ? { guidance: f.review.guidance } : {}),
           exitBehavior: f.review.exitBehavior,
         }
       : {
           status: f.status,
+          ...(kind !== undefined ? { kind } : {}),
+          fixable: kind === 'fix',
         };
 
     return {
