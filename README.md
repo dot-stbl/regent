@@ -280,9 +280,8 @@ all custom log payloads; pino's redact covers the rest.
 
 - **Zero language bias.** No bundled C# / TS / Python rules. The
   agent picks what fits the project.
-- **TS-first authoring surface.** No YAML / JSON config; rules are
-  TypeScript modules with type-safe `defineDetectRule` /
-  `defineFixRule` helpers.
+- **TS-first rule authoring.** Rules are TypeScript modules with
+  type-safe `defineDetectRule` / `defineFixRule` helpers.
 - **RE2 matching.** Linear-time, no ReDoS, no backreferences.
 - **Agent contract.** `regent llm` exposes the full skill set as
   navigable markdown — agents self-discover without hand-feeding.

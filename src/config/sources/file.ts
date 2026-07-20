@@ -8,9 +8,11 @@
 // layer through the merge pipeline at distinct precedence levels.
 
 import { existsSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { cosmiconfig } from 'cosmiconfig';
+import { load as parse, YAMLException } from 'js-yaml';
 
 import { safeParseConfig } from '../schema.js';
 import type { RegentConfig } from '../schema.js';
@@ -99,12 +101,31 @@ async function loadJson(filepath: string): Promise<RegentConfig | null> {
 }
 
 async function loadYamlLike(filepath: string): Promise<RegentConfig | null> {
-  // We deliberately avoid a YAML library dependency — the project uses
-  // JSON-shaped config in examples. If YAML is requested, callers
-  // receive a clear error rather than a silent default.
-  throw new Error(
-    `regent: YAML config at ${filepath} — JSON is the recommended format; convert with 'regent config show --format json' or hand-edit`,
-  );
+  try {
+    const text = await readFile(filepath, 'utf8');
+    const parsed: unknown = parse(text);
+    if (parsed === null || parsed === undefined) {
+      return null;
+    }
+    const document =
+      typeof parsed === 'object' && !Array.isArray(parsed)
+        ? (parsed as Record<string, unknown>)
+        : undefined;
+    const candidate = document?.[MODULE_NAME] ?? document?.['config'] ?? parsed;
+    const result = safeParseConfig(candidate);
+    if (!result.ok) {
+      throw new Error(`Zod validation failed for YAML config at ${filepath}: ${result.error}`);
+    }
+    return result.value;
+  } catch (err) {
+    if ((err as { code?: string }).code === 'ENOENT') {
+      return null;
+    }
+    if (err instanceof YAMLException) {
+      throw new Error(`YAML parse failed at ${filepath}: ${err.message}`, { cause: err });
+    }
+    throw err;
+  }
 }
 
 /**
