@@ -4,7 +4,7 @@
  * Mirrors `async-and-tasks.md#no-result`. Use as a template for
  * blocking-call rules.
  */
-import { defineRule } from '../../src/define-rule.js';
+import { defineRule } from '@dot-stbl/regent';
 
 export default defineRule({
   id: 'csharp.async.result-blocking',

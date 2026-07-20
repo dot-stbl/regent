@@ -4,7 +4,7 @@
  * Mirrors `naming-and-types.md#no-underscore-prefix`. Use as a template
  * for naming-convention rules.
  */
-import { defineRule } from '../../src/define-rule.js';
+import { defineRule } from '@dot-stbl/regent';
 
 export default defineRule({
   id: 'csharp.naming.private-field-underscore',
