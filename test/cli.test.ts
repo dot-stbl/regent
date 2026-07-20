@@ -54,6 +54,15 @@ describe('cli (smoke)', () => {
     expect(r.stdout).toContain('regent');
   });
 
+  it('prints regent + by .stbl banner on --help', async () => {
+    const r = await runCli(['--help']);
+    expect(r.stdout).toContain('regent');
+    expect(r.stdout).toContain('by');
+    expect(r.stdout).toContain('.stbl');
+    expect(r.stdout).toMatch(/─+/);  // accent line (─ U+2500)
+    expect(r.stdout).toContain('\u2588');  // .stbl mark (█ U+2588)
+  });
+
   it('check: emits SARIF when --format sarif', async () => {
     const r = await runCli(['check', '--all', '--format', 'sarif']);
     expect(r.stdout).toContain('"version": "2.1.0"');

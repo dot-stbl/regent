@@ -34,7 +34,7 @@ interface SarifLog {
 interface SarifRun {
   readonly tool: {
     readonly driver: {
-      readonly name: '@stbl/regent';
+      readonly name: '@dot-stbl/regent';
       readonly version: string;
       readonly informationUri: string;
       readonly rules: readonly SarifReportingDescriptor[];
@@ -155,7 +155,7 @@ export function renderSarif(
       {
         tool: {
           driver: {
-            name: '@stbl/regent',
+            name: '@dot-stbl/regent',
             version: '0.1.0',
             informationUri: 'https://github.com/dot-stbl/regent',
             rules: reportingDescriptors,

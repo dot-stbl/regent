@@ -1,5 +1,5 @@
 /**
- * Default C# rule presets shipped with `@stbl/regent`.
+ * Default C# rule presets shipped with `@dot-stbl/regent`.
  *
  * Each rule pairs an executable pattern with provenance to a `.md` source.
  * The runner reports `source` so consumers can navigate to the prose

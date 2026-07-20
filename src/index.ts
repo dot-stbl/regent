@@ -1,5 +1,5 @@
 /**
- * Public surface of `@stbl/regent`.
+ * Public surface of `@dot-stbl/regent`.
  *
  * The library exports:
  *   - `defineRule` / `defineConfig` — type-safe rule + config helpers

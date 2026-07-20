@@ -1,0 +1,3 @@
+[submodule "assets/stbl"]
+	path = assets/stbl
+	url = https://github.com/dot-stbl/.github.git

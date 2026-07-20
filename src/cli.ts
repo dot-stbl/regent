@@ -39,13 +39,19 @@ import { renderText, renderSummary } from './reporter/text.js';
 import { renderSarif } from './reporter/sarif.js';
 import { renderReview, renderReviewJson } from './reporter/review.js';
 import type { ConfigLayer, RunnerScope, Severity } from './types.js';
+import { renderBanner } from './cli/banner.js';
+import { loadLlmText } from './llm.js';
+
+const VERSION = '0.1.0';
 
 const program = new Command();
 
 program
   .name('regent')
   .description('The enforcer of [.stbl] house rules')
-  .version('0.1.0');
+  .version(VERSION);
+
+program.addHelpText('beforeAll', renderBanner({ useColor: pc.isColorSupported }));
 
 program
   .command('check')
@@ -127,6 +133,14 @@ program
   .action(async (ruleId: string, pathLine: string, options) => {
     const exitCode = await runReject(ruleId, pathLine, options);
     process.exit(exitCode);
+  });
+
+program
+  .command('llm')
+  .description('Print LLM-friendly skill documentation (llm.txt)')
+  .action(() => {
+    process.stdout.write(loadLlmText());
+    process.exit(0);
   });
 
 async function runCheck(options: CheckOptions): Promise<number> {
@@ -280,7 +294,7 @@ async function runReview(options: ReviewOptions): Promise<number> {
   return 0;
 }
 
-async function runList(options: ListOptions): Promise<void> {
+async function runList(_options: ListOptions): Promise<void> {
   const cwd = process.cwd();
   const useColor = shouldUseColor({ color: true } as unknown as CheckOptions);
 
@@ -295,7 +309,7 @@ async function runList(options: ListOptions): Promise<void> {
   }
 }
 
-async function runExplain(ruleId: string, options: ListOptions): Promise<void> {
+async function runExplain(ruleId: string, _options: ListOptions): Promise<void> {
   const cwd = process.cwd();
   const loaded = await loadRules({ repoRoot: cwd });
   const rule = loaded.rules.find((r) => r.spec.id === ruleId);
@@ -467,7 +481,7 @@ function writeConfigFile(configPath: string, config: ConfigLayer): void {
   const addList = config.rules?.add ?? [];
 
   const lines: string[] = [];
-  lines.push("import { defineConfig } from '@stbl/regent';");
+  lines.push("import { defineConfig } from '@dot-stbl/regent';");
   lines.push('');
   lines.push('export default defineConfig({');
   if (disableList.length > 0) {
@@ -490,10 +504,8 @@ function writeConfigFile(configPath: string, config: ConfigLayer): void {
   }
   if (addList.length > 0) {
     lines.push('    add: [');
-    for (const _a of addList) {
-      lines.push('      // add rule serialised');
-      lines.push('      null,');
-    }
+    lines.push(`      // ${addList.length} rule(s) — re-emit manually`);
+    lines.push('      null,');
     lines.push('    ],');
   }
   if (acceptList.length > 0) {
@@ -538,10 +550,10 @@ function runInit(): void {
 
   writeFileSync(
     `${auditDir}/config.ts`,
-    `import { defineConfig } from '@stbl/regent';
+    `import { defineConfig } from '@dot-stbl/regent';
 
 export default defineConfig({
-  extends: ['@stbl/regent/presets/csharp'],
+  extends: ['@dot-stbl/regent/presets/csharp'],
   rules: {
     disable: [],
     override: {},
@@ -654,7 +666,19 @@ interface RejectOptions {
   config?: string;
 }
 
+// Pre-parse interception: --llm at the top level must print llm.txt
+// even when no subcommand is given (Commander would otherwise show
+// help because there's no default subcommand action).
+if (process.argv.slice(2).includes('--llm')) {
+  process.stdout.write(loadLlmText());
+  process.exit(0);
+}
+
 program.parseAsync(process.argv).catch((err: unknown) => {
-  console.error(pc.red(`regent: ${(err as Error).message ?? err}`));
+  const e = err as { code?: string; message?: string };
+  if (e.code === 'commander.helpDisplayed' || e.code === 'commander.help' || e.code === 'commander.versionDisplayed') {
+    process.exit(0);
+  }
+  console.error(pc.red(`regent: ${e.message ?? String(err)}`));
   process.exit(1);
 });

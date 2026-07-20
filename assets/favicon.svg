@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  favicon.svg — canonical .stbl mark, 32x32, theme-aware.
+
+  Light mode: black outer 32x32 with white inner 16x16 (offset 8,8).
+  Dark mode (prefers-color-scheme: dark): inverted — white outer,
+  black inner.
+
+  Mirrors assets/stbl/assets/logo.svg (the canonical 64x64 mark) at
+  half scale. Use as GitHub repo favicon or anywhere a 32x32 icon is
+  needed.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"
+     role="img" aria-label=".stbl">
+  <title>.stbl</title>
+  <style>
+    .outer { fill: #000; }
+    .inner { fill: #fff; }
+    @media (prefers-color-scheme: dark) {
+      .outer { fill: #fff; }
+      .inner { fill: #000; }
+    }
+  </style>
+  <rect class="outer" width="32" height="32"/>
+  <rect class="inner" x="8" y="8" width="16" height="16"/>
+</svg>

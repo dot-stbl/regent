@@ -168,7 +168,7 @@ async function loadBuiltInPreset(name: string): Promise<CompiledRule[]> {
     const candidates = extractRuleSpecs(mod);
     return candidates.map((spec) => ({
       spec,
-      source: spec.source ?? `@stbl/regent/presets/${name}`,
+      source: spec.source ?? `@dot-stbl/regent/presets/${name}`,
       origin: { kind: 'preset', preset: name },
     }));
   } catch {
@@ -304,8 +304,8 @@ async function resolveExtends(
       continue;
     }
 
-    if (item.startsWith('@stbl/regent/presets/')) {
-      const presetName = item.replace('@stbl/regent/presets/', '').replace(/\.ts$/, '');
+    if (item.startsWith('@dot-stbl/regent/presets/')) {
+      const presetName = item.replace('@dot-stbl/regent/presets/', '').replace(/\.ts$/, '');
       rules.push(...await loadBuiltInPreset(presetName));
       continue;
     }

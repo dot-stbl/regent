@@ -50,20 +50,43 @@ reports who's out of line.
 
 ## Install
 
+`@dot-stbl/regent` ships via **GitHub Packages** under the `@dot-stbl`
+scope. Free for public packages.
+
+### One-time setup
+
+1. **Generate a Personal Access Token (classic)** with the `read:packages`
+   scope at <https://github.com/settings/tokens/new>. No other scopes needed.
+
+2. **Configure `~/.npmrc`** so the `@dot-stbl` scope routes to GitHub Packages:
+
+   ```ini
+   @dot-stbl:registry=https://npm.pkg.github.com
+   //npm.pkg.github.com/:_authToken=ghp_your_token_here
+   ```
+
+### Install
+
 ```sh
-bun add @stbl/regent
+# Project dependency
+bun add @dot-stbl/regent
+
+# Global CLI (binary `regent` becomes available on PATH)
+bun add -g @dot-stbl/regent
+
+# Run without install (bunx caches on first use)
+bunx @dot-stbl/regent check
 ```
 
-> Registry: `@stbl/regent` is published to **GitHub Packages** under
-> the `.stbl` scope. Configure `~/.npmrc` with
-> `@stbl:registry=https://npm.pkg.github.com` before installing. Bun
-> resolves this automatically when the `.npmrc` lives in your project
-> root.
+> Visibility: GitHub Packages defaults to **private** on first publish. To
+> make `regent` available publicly, go to
+> <https://github.com/orgs/dot-stbl/packages/npm/regent/settings> and
+> change visibility to **public**. One-time action per package.
 
 ## In action
 
 ```sh
-$ bunx @stbl/regent check
+$ bunx @dot-stbl/regent check
 src/Foo.cs:42 [error] csharp.no-private-methods
    39 │ public class Foo
    40 │ {
@@ -99,14 +122,14 @@ src/Baz.cs:42 [review] csharp.no-todo-without-owner
 For CI:
 
 ```sh
-$ bunx @stbl/regent check --format sarif --out audit.sarif
-$ bunx @stbl/regent check --no-review    # CI variant — review section hidden
+$ bunx @dot-stbl/regent check --format sarif --out audit.sarif
+$ bunx @dot-stbl/regent check --no-review    # CI variant — review section hidden
 ```
 
 `regent review` produces the LLM-friendly list:
 
 ```sh
-$ bunx @stbl/regent review > candidates.md
+$ bunx @dot-stbl/regent review > candidates.md
 # regent review candidates
 > Read each finding, decide accept|reject ...
 ## `src/Baz.cs:42`
@@ -122,18 +145,18 @@ visible in the diff view.
 ## Quickstart
 
 ```sh
-# In a repo with @stbl/regent installed
-bunx @stbl/regent check [--all]            # violations + review (default)
-bunx @stbl/regent check --no-review        # violations only (CI variant)
-bunx @stbl/regent review [--format json]   # pending review findings (markdown or json)
-bunx @stbl/regent list                     # every loaded rule + origin
-bunx @stbl/regent explain csharp.no-private-methods
-bunx @stbl/regent init                     # scaffold tools/audit/
+# In a repo with @dot-stbl/regent installed
+bunx @dot-stbl/regent check [--all]            # violations + review (default)
+bunx @dot-stbl/regent check --no-review        # violations only (CI variant)
+bunx @dot-stbl/regent review [--format json]   # pending review findings (markdown or json)
+bunx @dot-stbl/regent list                     # every loaded rule + origin
+bunx @dot-stbl/regent explain csharp.no-private-methods
+bunx @dot-stbl/regent init                     # scaffold tools/audit/
 
 # Tri-state review: accept|reject|ignore findings persistently
-bunx @stbl/regent accept csharp.no-todo-without-owner \
+bunx @dot-stbl/regent accept csharp.no-todo-without-owner \
     src/Baz.cs:42 --reason "tracked in ANL-200"
-bunx @stbl/regent reject csharp.no-todo-without-owner \
+bunx @dot-stbl/regent reject csharp.no-todo-without-owner \
     src/Baz.cs:60
 ```
 
@@ -147,7 +170,7 @@ so decisions persist across runs and survive code review.
 
 ```mermaid
 flowchart LR
-  A[Built-in preset<br/>@stbl/regent/presets/*] --> M{{merge}}
+  A[Built-in preset<br/>@dot-stbl/regent/presets/*] --> M{{merge}}
   B[User-global<br/>~/.agents/rules/**/*.rule.ts] --> M
   C[Repo<br/>tools/audit/config.ts] --> M
   D[Dev<br/>config.local.ts] --> M
@@ -161,7 +184,7 @@ flowchart LR
 
 | Priority | Source | Discovery |
 |---|---|---|
-| 1 (base) | Built-in presets | `@stbl/regent/presets/*` (loaded by default) |
+| 1 (base) | Built-in presets | `@dot-stbl/regent/presets/*` (loaded by default) |
 | 2 | User-global | `~/.agents/rules/**/*.rule.ts` (auto-loaded, recursive) |
 | 3 | Repository | `<repo>/tools/audit/{config.ts, rules/*.rule.ts}` (committed) |
 | 4 (top) | Per-developer | `<repo>/tools/audit/config.local.ts` (gitignored) |
@@ -193,11 +216,15 @@ three explicit states per finding:
 | `accepted` | matched accept-list entry for `(ruleId, path[, line])` | no (filtered) | only with `--include-accepted` (audit) | never |
 | `violation` | non-review rule OR unreviewed review-rule | yes, top section | no (review-only shows pending) | when severity ≥ `--exit-on` |
 
+Transitions: `pending → accepted` via `regent accept <rule> <path> --reason "..."`
+(adds to the accept-list, audit-trail required); `pending → violation` via
+`regent reject <rule> <path:line>` (writes to `.rejections.json`, fails CI).
+
 ### How to author a review-mode rule
 
 ```ts
 // ~/.agents/rules/csharp/no-todo-without-owner.rule.ts
-import { defineRule } from '@stbl/regent';
+import { defineRule } from '@dot-stbl/regent';
 
 export default defineRule({
   id: 'csharp.no-todo-without-owner',
@@ -244,7 +271,7 @@ intentional under these documented terms."** The reason is required
 
 ```ts
 // ~/.agents/rules/csharp/no-region-directive.rule.ts
-import { defineRule } from '@stbl/regent';
+import { defineRule } from '@dot-stbl/regent';
 
 export default defineRule({
   id: 'csharp.no-region-directive',
@@ -265,10 +292,10 @@ Per-project override:
 
 ```ts
 // tools/audit/config.ts (committed)
-import { defineConfig } from '@stbl/regent';
+import { defineConfig } from '@dot-stbl/regent';
 
 export default defineConfig({
-  extends: ['@stbl/regent/presets/csharp', '~/.agents/rules/csharp/*.rule.ts'],
+  extends: ['@dot-stbl/regent/presets/csharp', '~/.agents/rules/csharp/*.rule.ts'],
   rules: {
     disable: ['csharp.no-public-fields'],
     override: { 'csharp.no-private-methods': { severity: 'warning' } },
@@ -302,7 +329,7 @@ explains them.
 
 |   |   |
 |---|---|
-| Stage | Pre-release (skeleton + 2 csharp rules) |
+| Stage | Pre-release (skeleton + 4 csharp preset rules) |
 | Version | 0.1.0 (not yet tagged) |
 | License | MIT |
 | Runtime | Bun ≥ 1.1 (Node 20+ also supported) |
@@ -323,13 +350,34 @@ explains them.
 | `src/reporter/text.ts` | picocolors, multi-line context, severity-coloured gutter |
 | `src/reporter/sarif.ts` | SARIF 2.1 `region` + `contextRegion` for GitHub code scanning |
 | `src/cli.ts` | commander: `regent <check\|list\|init\|explain>` |
-| `src/presets/csharp.ts` | `noRegion`, `noPrivateMethods` |
+| `src/presets/csharp.ts` | `noRegion`, `noPrivateMethods`, `noTodoWithoutOwner` (review), `shortName` (review) |
+
+## Brand
+
+Brand assets are vendored via git submodule from
+[dot-stbl/.github](https://github.com/dot-stbl/.github) at `assets/stbl/`:
+
+- `assets/stbl/assets/by-stbl.css` — `.by-stbl` utility class (for inline README use)
+- `assets/stbl/assets/lockup-template.svg` — template for `ProductName by .stbl` lockups
+- `assets/stbl/assets/logo.svg` — canonical `.stbl` mark (64×64 black square, 32×32 white inner)
+- `assets/stbl/assets/wordmark.svg` — mark + `stbl` text
+- `assets/lockup-regent.svg` — generated lockup for this product
+- `assets/lockup-regent-dark.svg` — dark-surface variant
+- `assets/header-{dark,light}.svg` — README hero, derived from the lockup pattern
+
+To update brand assets: `git submodule update --remote assets/stbl`.
+To modify the `.stbl` kit itself, open a PR at
+[dot-stbl/.github](https://github.com/dot-stbl/.github).
+The lockup pattern follows [`dot-stbl/brand`](https://github.com/dot-stbl/brand)
+guidelines (mark hierarchy, TRADEMARK restraint).
 
 ## Related
 
 - [`.stbl` brand kit](https://github.com/dot-stbl/brand) — design
   rules, asset templates, contributing notes (TRADEMARK restraint,
   mark hierarchy, lockup pattern)
+- [`.stbl` org profile](https://github.com/dot-stbl/.github) — brand
+  assets source (this repo's `assets/stbl/` is a submodule of it)
 - [`.stbl` org](https://github.com/dot-stbl) — sibling projects
   (`tessera`, `plexor`, `anlytra`, …)
 - [`.stbl/regent` repo](https://github.com/dot-stbl/regent) — issues,
