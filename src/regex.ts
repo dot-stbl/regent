@@ -43,13 +43,37 @@ function resolveRe2Ctor(): Re2Ctor {
 
 const Re2: Re2Ctor = resolveRe2Ctor();
 
+/**
+ * First-match result: precise byte offsets within the scanned input plus
+ * capture-group values.
+ *
+ * Group *offsets* are intentionally absent — re2-wasm does not implement the
+ * `d` flag (`.indices`), so only group values are recoverable here. That is
+ * enough for `$n` template expansion; a fix engine that needs a group's span
+ * derives it from these values when required.
+ */
+export interface MatchHit {
+  /** 0-based byte offset of the match start within the input. */
+  readonly start: number;
+  /** 0-based byte offset one past the match end. */
+  readonly end: number;
+  /** The matched substring (capture group 0). */
+  readonly text: string;
+  /** Capture-group values (group 1..n); null for non-participating groups. */
+  readonly groups: readonly (string | null)[];
+}
+
 export interface RegexMatcher {
   readonly source: string;
-  /**
-   * True if `input` contains a match. For finding all matches with
-   * offsets, use `scanMatches` directly.
-   */
+  /** True if `input` contains a match. */
   test(input: string): boolean;
+  /**
+   * First match in `input`, with precise offsets + capture-group values,
+   * or null if there is no match. Uses a non-global `exec`, so it carries
+   * no `lastIndex` state and is safe to call repeatedly / interleaved with
+   * `test`.
+   */
+  firstMatch(input: string): MatchHit | null;
 }
 
 export interface MatchResult {
@@ -78,6 +102,21 @@ export function compileRegex(
     return {
       source,
       test: (input: string) => matcher.test(input),
+      firstMatch: (input: string): MatchHit | null => {
+        const m = matcher.exec(input) as
+          | ({ index?: number; length: number } & { [k: number]: string | undefined })
+          | null;
+        if (!m || typeof m.index !== 'number') {
+          return null;
+        }
+        const text = m[0] ?? '';
+        const groups: (string | null)[] = [];
+        for (let i = 1; i < m.length; i++) {
+          const g = m[i];
+          groups.push(g === undefined || g === null ? null : g);
+        }
+        return { start: m.index, end: m.index + text.length, text, groups };
+      },
     };
   } catch (err) {
     throw new Error(`invalid RE2 pattern: ${source}: ${(err as Error).message}`);
