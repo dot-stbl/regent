@@ -51,7 +51,7 @@ jobs:
             echo "@dot-stbl:registry=https://npm.pkg.github.com"
             echo "//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}"
           } > .npmrc
-          bun publish --release ${{ steps.version.outputs.version }}
+          npm publish --provenance=false
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
