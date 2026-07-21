@@ -97,3 +97,15 @@ regent bundles              # supported languages + detected project version
 regent llm                  # full agent contract (authoring / schema / examples)
 regent explain <rule-id>    # a rule's message + prose source
 ```
+
+## Install — portable across agents (Claude Code, opencode, …)
+
+This is a standard Agent Skill (`name` + `description` frontmatter). Claude Code
+and opencode both read these shared locations, so one install works in both:
+
+- `~/.agents/skills/regent/SKILL.md` — global, both tools
+- `.agents/skills/regent/SKILL.md` or `.claude/skills/regent/SKILL.md` — per repo
+
+opencode additionally reads `.opencode/skills/` and `~/.config/opencode/skills/`;
+Claude Code additionally reads `~/.claude/skills/`. Any agent without skill
+discovery can read the same guidance via `regent llm`.
