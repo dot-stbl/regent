@@ -10,12 +10,14 @@
  *
  * Path normalisation: every `path` is forward-slash + repo-relative
  * (mirrors SARIF reporter behaviour for cross-platform stability).
+ * Computed manually rather than via `path.relative()` because
+ * `path.posix.relative` (used on Linux CI) does not recognise
+ * Windows drive letters as absolute — it would emit a useless
+ * `../C:/repo/...` for a `C:\repo\...` input.
  *
  * Empty results still produce a valid document:
  *   `{ rules: [], findings: [], scannedFiles: 0 }`.
  */
-
-import { relative } from 'node:path';
 
 import type { CompiledRule, Finding, RunResult, Severity } from '../types.js';
 
@@ -81,7 +83,7 @@ export function renderJson(
   const jsonFindings: JsonFinding[] = findings.map((f) => ({
     ruleId: f.ruleId,
     severity: f.severity,
-    path: toForwardSlash(relative(options.cwd, f.path)),
+    path: toRepoRelative(f.path, options.cwd),
     match: {
       line: f.match.startLine + 1,
       column: f.match.startColumn + 1,
@@ -136,6 +138,20 @@ export function renderJsonFromRun(
   return JSON.stringify(result, null, 2) + '\n';
 }
 
-function toForwardSlash(p: string): string {
-  return p.split('\\').join('/');
+function toRepoRelative(filepath: string, cwd: string): string {
+  const split = (s: string): readonly string[] =>
+    s.split(/[\\/]+/).filter((segment) => segment.length > 0);
+
+  const fileParts = split(filepath);
+  const cwdParts = split(cwd);
+
+  let i = 0;
+  while (
+    i < fileParts.length
+    && i < cwdParts.length
+    && fileParts[i] === cwdParts[i]
+  ) {
+    i++;
+  }
+  return fileParts.slice(i).join('/');
 }
