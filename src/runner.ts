@@ -436,7 +436,33 @@ async function scanFile(
   } catch {
     return null;
   }
+  return scanFileContent(content, file, compiled, astRules, acceptList, contextBuffer);
+}
 
+/**
+ * Pure per-file scan over an in-memory `content` string. Extracted
+ * from `scanFile` so callers that already have the content (e.g. the
+ * fixpoint re-scan in `applyFixes` after applying edits) can reuse
+ * the same regex + AST pipeline without an extra disk round-trip.
+ *
+ * Phase 4 of the fix-mode epic (#7) introduces this seam for the
+ * `applyFixes` fixpoint loop; before, only `scanFile` exposed the
+ * logic and it always read from disk.
+ *
+ * The accept-list IS applied (review-mode findings get their normal
+ * pending / accepted triage) so the re-scan mirrors the initial
+ * detection. AST findings emitted here would have no fix attachment
+ * (the fixer engine only handles regex-rule `RuleFixSpec` kinds), so
+ * they would be deferred by the engine — the re-scan stays safe.
+ */
+async function scanFileContent(
+  content: string,
+  file: string,
+  compiled: readonly CompiledRuleWithPattern[],
+  astRules: readonly CompiledAstRule[],
+  acceptList: readonly AcceptEntry[],
+  contextBuffer: number,
+): Promise<{ findings: Finding[] }> {
   const findings: Finding[] = [];
   const fileLines = content.split('\n');
   const lineOffsets = computeLineOffsets(fileLines);
@@ -569,6 +595,93 @@ async function scanFile(
   }
 
   return { findings };
+}
+
+/**
+ * Options accepted by `detectFile` — the accept-list and context
+ * buffer mirror `RunOptions`; `content` lets the fixpoint loop in
+ * `applyFixes` (Phase 4 of #7) re-scan a file against its
+ * post-edit in-memory content without writing it to disk first.
+ */
+export interface DetectFileOptions extends RunOptions {
+  /**
+   * Optional pre-loaded file content. When omitted, `detectFile`
+   * reads the file from disk (mirroring `runRules`). When provided,
+   * the disk read is skipped and the supplied content is scanned
+   * directly — the canonical use is `applyFixes`'s fixpoint loop,
+   * which already has the post-edit content in memory.
+   */
+  readonly content?: string;
+}
+
+/**
+ * Per-file detection primitive (Phase 4 of the fix-mode epic, #7).
+ * Runs the supplied `CompiledRule[]` (and any AST rules if the
+ * `astRules` option is set) against a single file and returns the
+ * findings. Compiles each rule's pattern / excludeWhen RE2 once per
+ * call; for repeated scans of the same rule set, callers should
+ * consider caching the compiled matchers (P5 follow-up).
+ *
+ * Most library callers should prefer `runRules` / `runRulesStream`
+ * for whole-tree scans; `detectFile` exists for the
+ * already-have-the-content case (the fixpoint loop) and for testing.
+ *
+ * The accept-list applies normally (review rules → `pending` /
+ * `accepted`). Returns an empty array when the file is missing,
+ * unreadable, or oversized — mirroring `scanFile`'s `null` contract.
+ */
+export async function detectFile(
+  file: string,
+  rules: readonly CompiledRule[],
+  options: DetectFileOptions = {},
+): Promise<readonly Finding[]> {
+  const contextBuffer = options.contextBuffer ?? DEFAULT_CONTEXT_BUFFER;
+
+  let content: string;
+  if (options.content !== undefined) {
+    content = options.content;
+  } else {
+    try {
+      const buf = await readFile(file);
+      if (buf.byteLength > MAX_FILE_BYTES) {
+        return [];
+      }
+      content = buf.toString('utf8');
+    } catch {
+      return [];
+    }
+  }
+
+  const compiled = await Promise.all(
+    rules.map(async (entry) => {
+      const spec: RuleSpec = isCompiledRule(entry) ? entry.spec : entry;
+      const origin: RuleOrigin = isCompiledRule(entry)
+        ? entry.origin
+        : { kind: 'repo', path: '<caller>' };
+      const source: string = isCompiledRule(entry)
+        ? entry.source
+        : spec.source ?? '<caller>';
+      return {
+        spec,
+        origin,
+        source,
+        pattern: await compileRegex(spec.pattern, { multiline: true }),
+        exclude: spec.excludeWhen
+          ? await compileRegex(spec.excludeWhen, { multiline: true })
+          : null,
+      };
+    }),
+  );
+
+  const result = await scanFileContent(
+    content,
+    file,
+    compiled,
+    options.astRules ?? [],
+    options.acceptList ?? [],
+    contextBuffer,
+  );
+  return result.findings;
 }
 
 /**

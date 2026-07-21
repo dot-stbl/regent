@@ -1,12 +1,12 @@
 /**
- * `regent fix` CLI subcommand — Phase 3 of the fix-mode epic (#60).
+ * `regent fix` CLI subcommand — Phase 3 + 4 of the fix-mode epic (#60, #61).
  *
- * Wraps the `applyFixes` engine from `src/fixer.ts` (P2, #59) with
- * config loading, scope filtering, a confirmation prompt, and human /
- * JSON output. Library callers can `import { applyFixes }` directly
- * — this CLI is a thin layer that honours the same options.
+ * Wraps the `applyFixes` engine from `src/fixer.ts` (P2 #59, P4 #61)
+ * with config loading, scope filtering, a confirmation prompt, and
+ * human / JSON output. Library callers can `import { applyFixes }`
+ * directly — this CLI is a thin layer that honours the same options.
  *
- * Flags (P3 scope):
+ * Flags (P3 + P4 scope):
  *   --dry-run              show what would change; do not write
  *   --all                  apply `safety: 'suggested'` edits too (otherwise
  *                          those surface in `suggested[]` for the agent).
@@ -18,16 +18,21 @@
  *   --rule <id>            restrict to listed rule ids (repeatable)
  *   --filter <glob>        restrict to file paths matching glob
  *   --json                 emit machine-readable ApplyFixesResult on stdout
+ *   --max-passes <n>       fixpoint iterations for converging rules (P4).
+ *                          Default: 5. Pass `1` to disable the fixpoint
+ *                          (single-pass semantics). Capped at 20.
  *   -y, --yes              skip the interactive confirmation prompt
  *
  * Variadic positional `[paths...]` narrows the scan; default = cwd.
  *
  * Exit code:
  *   0 — all findings either applied or surfaced as suggested (no
- *       conflicting / out-of-range deferred edits)
+ *       conflicting / out-of-range deferred edits, no convergence
+ *       error)
  *   1 — at least one deferred edit with reason `overlap` (conflicting
  *       edits on the same byte span — needs user intervention) or
- *       `out-of-range` (file content changed mid-run — suggest retry).
+ *       `out-of-range` (file content changed mid-run — suggest retry),
+ *       OR the fixpoint exceeded `--max-passes` (convergence error).
  *
  * Deferred edits with reason `no-fix-attached` are **not** exit-1: the
  * rule fired without a `fix` attachment, which is a config-side
@@ -48,6 +53,9 @@ import pc from 'picocolors';
 
 import {
   applyFixes,
+  APPLY_FIXES_DEFAULT_MAX_PASSES,
+  APPLY_FIXES_MAX_PASSES_CAP,
+  ApplyFixesConvergenceError,
   type AppliedEdit,
   type ApplyFixesOptions,
   type ApplyFixesResult,
@@ -75,6 +83,8 @@ export interface FixOptions {
   filter?: string;
   json?: boolean;
   yes?: boolean;
+  /** Fixpoint iteration cap for converging rules (Phase 4 of #7). */
+  maxPasses?: number;
 }
 
 export interface RunFixArgs {
@@ -101,18 +111,36 @@ const EXCLUDE_GLOBS: readonly string[] = [
 export function registerFixCommand(program: Command): void {
   program
     .command('fix')
-    .description('apply auto-fixes; --dry-run for diff-only, --all for suggested lane')
+    .description('apply auto-fixes; --dry-run for diff-only, --all for suggested lane, --max-passes <n> for fixpoint')
     .argument('[paths...]', 'paths to scan (default: cwd)')
     .option('--dry-run', 'print what would change; do not write')
     .option('--all', 'apply safety=suggested edits (otherwise surface in suggested[])')
     .option('--rule <id>', 'restrict to one rule id (repeatable)', collectValues, [])
     .option('--filter <glob>', 'restrict to file paths matching glob (against finding path)')
     .option('--json', 'emit machine-readable JSON result on stdout')
+    .option(
+      '--max-passes <n>',
+      `fixpoint iterations for converging rules (default: ${APPLY_FIXES_DEFAULT_MAX_PASSES}, max: ${APPLY_FIXES_MAX_PASSES_CAP})`,
+      parseMaxPasses,
+    )
     .option('-y, --yes', 'skip the confirmation prompt')
     .action(async (paths: string[], options: FixOptions) => {
       const exitCode = await runFix({ paths, options });
       process.exit(exitCode);
     });
+}
+
+/**
+ * Commander option-parser for `--max-passes <n>`. Rejects non-positive
+ * values (the engine clamps internally to `>= 1`, but a stray `--max-passes 0`
+ * would silently disable the loop; better to fail loud at the CLI edge).
+ */
+function parseMaxPasses(value: string): number {
+  const n = Number.parseInt(value, 10);
+  if (!Number.isFinite(n) || n < 1) {
+    throw new Error(`--max-passes must be a positive integer (got '${value}')`);
+  }
+  return n;
 }
 
 /**
@@ -150,7 +178,7 @@ export async function runFix({ paths, options }: RunFixArgs): Promise<number> {
       const msg = `no rules matched --rule ${options.rule.join(', ')}`;
       if (options.json) {
         process.stdout.write(
-          `${JSON.stringify({ applied: [], changedFiles: [], deferred: [], suggested: [], unifiedDiff: '', summary: msg }, null, 2)}\n`,
+          `${JSON.stringify({ applied: [], changedFiles: [], deferred: [], suggested: [], unifiedDiff: '', passes: 0, summary: msg }, null, 2)}\n`,
         );
       } else {
         process.stdout.write(`${pc.yellow('~')} ${msg}\n`);
@@ -247,11 +275,23 @@ export async function runFix({ paths, options }: RunFixArgs): Promise<number> {
     cwd,
     dryRun: options.dryRun === true,
     lane: options.all === true ? 'all' : 'safe',
+    ...(options.maxPasses !== undefined ? { maxPasses: options.maxPasses } : {}),
+    acceptList: loaded.acceptList,
+    contextBuffer: loaded.resolvedConfig.output.contextBuffer,
   };
   let fixResult: ApplyFixesResult;
   try {
     fixResult = await applyFixes(findings, rulesById, applyOptions);
   } catch (err) {
+    if (err instanceof ApplyFixesConvergenceError) {
+      // Surface the convergence error to stderr + exit 1 so CI
+      // catches looping rules. The original error's `stats` field
+      // carries the per-file diagnostic for programmatic consumers.
+      process.stderr.write(
+        `${useColor ? pc.red('error: convergence') : 'error: convergence'}: ${err.message}\n`,
+      );
+      return 1;
+    }
     return cliError(useColor, `applyFixes failed: ${(err as Error).message}`);
   }
 
@@ -292,6 +332,7 @@ function emptyResult(): ApplyFixesResult {
     deferred: [],
     suggested: [],
     unifiedDiff: '',
+    passes: 0,
   };
 }
 
@@ -359,6 +400,8 @@ interface JsonOutput {
   readonly deferred: readonly DeferredEdit[];
   readonly suggested: readonly SuggestedEdit[];
   readonly unifiedDiff: string;
+  /** Fixpoint iteration count (P4). `1` = single pass; `> 1` = fixpoint fired. */
+  readonly passes: number;
 }
 
 function toJsonResult(result: ApplyFixesResult, opts: { readonly cwd: string; readonly mode: 'apply' | 'dry-run' }): JsonOutput {
@@ -370,6 +413,7 @@ function toJsonResult(result: ApplyFixesResult, opts: { readonly cwd: string; re
     deferred: result.deferred,
     suggested: result.suggested,
     unifiedDiff: result.unifiedDiff,
+    passes: result.passes,
   };
 }
 
@@ -398,8 +442,14 @@ function renderHuman(
 
   if (totalApplied > 0) {
     const total = useColor ? pc.green(String(totalApplied)) : String(totalApplied);
+    // Surface the fixpoint iteration count when the engine did
+    // more than one pass — single-pass runs are the common case
+    // and don't need the extra verbosity.
+    const passesSuffix = result.passes > 1
+      ? ` across ${result.passes} pass${result.passes === 1 ? '' : 'es'}`
+      : '';
     lines.push(
-      `Applied: ${total} edit${totalApplied === 1 ? '' : 's'} to ${fileCount} file${fileCount === 1 ? '' : 's'}`,
+      `Applied: ${total} edit${totalApplied === 1 ? '' : 's'} to ${fileCount} file${fileCount === 1 ? '' : 's'}${passesSuffix}`,
     );
   } else {
     lines.push('Applied: 0 edits');

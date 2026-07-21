@@ -163,6 +163,23 @@ interface RuleFixBase {
    * Surfaced in `applied` / `suggested` blocks per the P5 schema.
    */
   readonly guidance?: string;
+
+  /**
+   * Opt-in flag for the fixpoint loop (Phase 4 of the fix-mode epic,
+   * #7). When `true`, the rule participates in `applyFixes`'s
+   * per-file re-scan: after the engine applies the rule's edit, the
+   * file content is re-detected and any new findings for converging
+   * rules are applied too, until no edits are produced or `maxPasses`
+   * is reached. Default: `false` — most rules are single-pass.
+   *
+   * Mark a rule `converges: true` ONLY when the fix is mechanically
+   * idempotent — `delete-line`, or `replace` with a fixed template
+   * whose replacement does not re-trigger detection. Rules whose
+   * replacement can produce chained edits (e.g. formatter-style
+   * transformations) MUST NOT set this flag; they would loop until
+   * `maxPasses` is exhausted and `ApplyFixesConvergenceError` fires.
+   */
+  readonly converges?: boolean;
 }
 
 /**
