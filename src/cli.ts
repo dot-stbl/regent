@@ -110,6 +110,11 @@ program
   .option('--no-review', 'hide the review-candidates section')
   .option('--stream', 'stream findings live as they are found (text format) + progress indicator')
   .option(
+    '--columns <n>',
+    'wrap output to <n> visible columns (default: process.stdout.columns or 120)',
+    (value) => Number.parseInt(value, 10),
+  )
+  .option(
     '--concurrency <n>',
     'max in-flight file scans (overrides runner.concurrency / STBL_REGENT_RUNNER_CONCURRENCY)',
     (value) => Number.parseInt(value, 10),
@@ -355,6 +360,7 @@ async function runCheck(options: CheckOptions): Promise<number> {
   const cwd = process.cwd();
   const useColor = shouldUseColor(options);
   const hideReview = options.review === false;
+  const columns = resolveColumns(options);
 
   let loadedRules;
   try {
@@ -414,6 +420,7 @@ async function runCheck(options: CheckOptions): Promise<number> {
       hideReview,
       severity: options.severity as Severity | undefined,
       exitOn: (options.exitOn as Severity) ?? 'error',
+      columns,
     });
   }
 
@@ -449,11 +456,11 @@ async function runCheck(options: CheckOptions): Promise<number> {
       { cwd },
     );
   } else if (format === 'both') {
-    output = renderText(findings, { cwd, useColor, hideReview });
+    output = renderText(findings, { cwd, useColor, hideReview, columns });
     output += '\n--- SARIF ---\n';
     output += renderSarif(findings, result.rules, { cwd });
   } else {
-    output = renderText(findings, { cwd, useColor, hideReview });
+    output = renderText(findings, { cwd, useColor, hideReview, columns });
     output += '\n' + renderSummary(findings, result.rules, useColor);
   }
 
@@ -485,9 +492,10 @@ async function runCheckStream(
     hideReview: boolean;
     severity: Severity | undefined;
     exitOn: Severity;
+    columns?: number;
   },
 ): Promise<number> {
-  const { cwd, useColor, hideReview, severity, exitOn } = display;
+  const { cwd, useColor, hideReview, severity, exitOn, columns } = display;
   const all: Finding[] = [];
   const frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
   const minSeverity = severity ? severityRank(severity) : null;
@@ -509,7 +517,7 @@ async function runCheckStream(
         continue;
       }
       clearLine();
-      process.stdout.write(renderFinding(ev.finding, { cwd, useColor }));
+      process.stdout.write(renderFinding(ev.finding, { cwd, useColor, columns }));
       shown++;
     } else if (ev.type === 'progress' && isTty) {
       process.stderr.write(
@@ -554,7 +562,7 @@ async function runReview(options: ReviewOptions): Promise<number> {
   const cwd = process.cwd();
   const loaded = await loadRules({
     repoRoot: cwd,
-    args: cliArgsFromOptions({ ...options, review: undefined }),
+    args: cliArgsFromOptions({}),
   });
 
   const scope: RunnerScope = {
@@ -1027,12 +1035,35 @@ function shouldUseColor(options: { color?: unknown }): boolean {
 }
 
 /**
+ * Resolve the column budget for the text reporter. Precedence:
+ *
+ *   1. `--columns <n>` (explicit CLI override for CI / pipe)
+ *   2. `process.stdout.columns` (live TTY width)
+ *   3. `120` (safe default when neither is available)
+ *
+ * Returns `undefined` when explicit `--no-wrap` semantics are wanted
+ * (not used today — present for future-proofing).
+ */
+function resolveColumns(options: { columns?: unknown }): number | undefined {
+  if (typeof options.columns === 'number' && Number.isFinite(options.columns)) {
+    return options.columns;
+  }
+  const stdoutCols = process.stdout.columns;
+  if (typeof stdoutCols === 'number' && stdoutCols > 0) {
+    return stdoutCols;
+  }
+  return 120;
+}
+
+/**
  * Translate commander-resolved CLI options into the `CliArgs` overlay
  * the loader's `loadConfig` understands. Only the fields the loader
- * actually reads are mapped; everything else stays out.
+ * actually reads are mapped; everything else stays out. The narrow
+ * input type lets `runReview` reuse this without widening to
+ * `CheckOptions` (which has fields that don't apply here).
  */
 function cliArgsFromOptions(
-  options: CheckOptions,
+  options: Pick<CheckOptions, 'color' | 'concurrency'>,
 ): {
   logLevel?: string;
   logFormat?: string;
@@ -1108,7 +1139,7 @@ function globMatch(value: string, pattern: string): boolean {
 interface CheckOptions {
   config?: string;
   scope?: string;
-  all?: boolean;
+  all?: string;
   diffBase?: string;
   format?: string;
   out?: string;
@@ -1120,6 +1151,7 @@ interface CheckOptions {
   review?: boolean;
   concurrency?: number;
   stream?: boolean;
+  columns?: number;
 }
 
 interface ReviewOptions {

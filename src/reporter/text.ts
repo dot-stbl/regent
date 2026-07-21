@@ -23,12 +23,18 @@ import { relative } from 'node:path';
 import pc from 'picocolors';
 
 import type { Finding, Severity } from '../types.js';
+import { wrapAnsi } from './wrap-ansi.js';
 
 interface RenderTextOptions {
   readonly cwd: string;
   readonly useColor: boolean;
   /** When true, suppress the review-mode findings section. Default: false. */
   readonly hideReview?: boolean;
+  /**
+   * Maximum visible width of a row before it wraps. Undefined disables
+   * wrapping (default). The CLI passes `process.stdout.columns ?? 120`.
+   */
+  readonly columns?: number;
 }
 
 /**
@@ -69,7 +75,7 @@ export function renderText(
       const rel = toForwardSlash(relative(options.cwd, file));
       lines.push('');
       for (const finding of fileFindings) {
-        lines.push(formatFinding(finding, rel, 'violation', c));
+        lines.push(formatFinding(finding, rel, 'violation', c, options.columns));
       }
     }
   }
@@ -82,7 +88,7 @@ export function renderText(
       const rel = toForwardSlash(relative(options.cwd, file));
       lines.push('');
       for (const finding of fileFindings) {
-        lines.push(formatFinding(finding, rel, 'review', c));
+        lines.push(formatFinding(finding, rel, 'review', c, options.columns));
       }
     }
   }
@@ -98,7 +104,7 @@ export function renderFinding(finding: Finding, options: RenderTextOptions): str
   const c = options.useColor ? pc : createDulledColorPalette();
   const rel = toForwardSlash(relative(options.cwd, finding.path));
   const stage = finding.status === 'pending' ? 'review' : 'violation';
-  return `${formatFinding(finding, rel, stage, c)}\n`;
+  return `${formatFinding(finding, rel, stage, c, options.columns)}\n`;
 }
 
 function renderSectionTitle(label: string, c: typeof pc): string {
@@ -111,13 +117,16 @@ function formatFinding(
   displayPath: string,
   stage: 'violation' | 'review',
   c: typeof pc,
+  columns?: number,
 ): string {
   const tag = stage === 'review'
     ? c.bgCyan(c.black(' review '))
     : severityTag(finding.severity, c);
 
-  const header = `${c.bold(displayPath)}:${finding.match.startLine + 1} ${tag} ${c.cyan(finding.ruleId)}`;
-  const lines: string[] = [header];
+  const headerText = `${c.bold(displayPath)}:${finding.match.startLine + 1} ${tag} ${c.cyan(finding.ruleId)}`;
+  const lines: string[] = columns === undefined
+    ? [headerText]
+    : wrapAnsi(headerText, Math.max(20, columns)).split('\n');
 
   const { startLine, endLine, lines: contextLines } = finding.context;
   const gutterWidth = String(endLine + 1).length;
@@ -135,23 +144,73 @@ function formatFinding(
         : c.bgRed(c.bold(severityBgText(finding.severity, `${String(fileLineNumber).padStart(gutterWidth)} │ `)))
       : c.gray(`${c.dim(String(fileLineNumber).padStart(gutterWidth))} ${c.dim('│ ')}`);
 
-    lines.push(`  ${gutter}${content}`);
+    const gutterPrefix = `  ${gutter}`;
+    const contIndent = '  ';
+    const innerBudget = columns === undefined
+      ? Number.POSITIVE_INFINITY
+      : Math.max(1, columns - visibleLength(gutterPrefix));
+    const wrapped = columns === undefined
+      ? content
+      : wrapAnsi(content, innerBudget);
+    const wrappedRows = wrapped.split('\n');
+    lines.push(gutterPrefix + wrappedRows[0]);
+    for (let j = 1; j < wrappedRows.length; j++) {
+      // continuation rows: indent to column 2, no gutter (the gutter
+      // anchor is already established; the eye aligns on it).
+      lines.push(contIndent + wrappedRows[j]);
+    }
   }
 
-  lines.push(`  ${c.dim('└─')} ${finding.message}`);
+  pushWrapped(lines, finding.message, `  ${c.dim('└─')} `, '  ', columns);
   if (finding.source) {
-    lines.push(`  ${c.dim('Source:')} ${c.dim(finding.source)}`);
+    pushWrapped(lines, finding.source, `  ${c.dim('Source:')} `, '  ', columns);
   }
   if (stage === 'review' && finding.review?.guidance) {
-    lines.push(`  ${c.dim('Guidance:')} ${finding.review.guidance}`);
+    pushWrapped(lines, finding.review.guidance, `  ${c.dim('Guidance:')} `, '  ', columns);
     if (finding.review.exitBehavior === 'unreviewed-fails') {
-      lines.push(`  ${c.dim('(')}exitBehavior: unreviewed-fails${c.dim(')')}`);
+      const text = `(${c.dim('exitBehavior: unreviewed-fails')})`;
+      pushWrapped(lines, text, '  ', '  ', columns);
     }
   }
   if (finding.acceptedReason) {
-    lines.push(`  ${c.dim('Accepted:')} ${finding.acceptedReason}`);
+    pushWrapped(lines, finding.acceptedReason, `  ${c.dim('Accepted:')} `, '  ', columns);
   }
   return lines.join('\n');
+}
+
+/**
+ * Wrap `value` to fit `columns` and push the resulting visual rows to
+ * `out`. The first row gets `firstPrefix` (label + indent, may contain
+ * ANSI); subsequent rows get `contPrefix` (indent only). Pass
+ * `columns = undefined` to disable wrapping.
+ *
+ * Used by `formatFinding` for label-style lines (`└─ message`,
+ * `Source: …`, `Guidance: …`, `Accepted: …`) where the label belongs
+ * to the first row only.
+ */
+function pushWrapped(
+  out: string[],
+  value: string,
+  firstPrefix: string,
+  contPrefix: string,
+  columns?: number,
+): void {
+  if (columns === undefined) {
+    out.push(firstPrefix + value);
+    return;
+  }
+  const budget = Math.max(1, columns - visibleLength(contPrefix));
+  const wrapped = wrapAnsi(value, budget).split('\n');
+  out.push(firstPrefix + wrapped[0]);
+  for (let i = 1; i < wrapped.length; i++) {
+    out.push(contPrefix + wrapped[i]);
+  }
+}
+
+/** Visible length of `s` ignoring ANSI SGR escapes. */
+function visibleLength(s: string): number {
+  // eslint-disable-next-line no-control-regex -- regex intentionally matches the ESC byte.
+  return s.replace(/\u001b\[[0-9;]*m/g, '').length;
 }
 
 function severityTag(s: Severity, c: typeof pc): string {
