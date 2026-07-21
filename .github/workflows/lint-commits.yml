@@ -1,0 +1,39 @@
+name: lint-commits
+
+# Reject AI-assistant attribution trailers in commit messages.
+# See CONTRIBUTING.md → "Commit attribution policy".
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  forbid-ai-trailers:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Reject AI-assistant attribution trailers
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          PATTERN='^(Co-Authored-By|Contributed-By|Contribute-By|Assisted-By|Generated-By):.*(Claude|Anthropic)'
+          RANGE="origin/${BASE_REF}...HEAD"
+          if ! git rev-parse --verify "$RANGE" >/dev/null 2>&1; then
+            echo "::warning::Could not resolve range $RANGE; skipping lint."
+            exit 0
+          fi
+          HITS=$(git log --pretty=format:'%H%n%b%n---END---' "$RANGE" \
+            | awk '/^---END---$/{rec=""; next} {rec=rec $0 "\n"} END{}' )
+          # Use grep -E with line context to surface the offender.
+          if echo "$HITS" | grep -B1 -E "$PATTERN"; then
+            echo "::error::Found AI-assistant attribution trailer in a commit message. See CONTRIBUTING.md."
+            exit 1
+          fi
+          echo "✓ no AI-assistant trailers in commit range"

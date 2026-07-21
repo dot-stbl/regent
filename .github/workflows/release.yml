@@ -1,12 +1,10 @@
 name: release
 
-# Publishes @dot-stbl/regent to GitHub Packages on a `v*` tag push,
+# Publishes @dot-stbl/regent to npmjs.com on a `v*` tag push,
 # then creates a GitHub Release with auto-generated notes.
 #
-# Visibility: GitHub Packages defaults to PRIVATE on first publish. After
-# the first successful run, go to
-# https://github.com/orgs/dot-stbl/packages/npm/regent/settings and
-# change package visibility to PUBLIC.
+# Requires: GitHub Environment "npm-publish" with NPM_TOKEN secret
+# (Settings → Environments → npm-publish → Secrets).
 on:
   push:
     tags:
@@ -14,15 +12,15 @@ on:
 
 permissions:
   contents: write   # tag push + GitHub Release creation
-  packages: write   # publish to GitHub Packages
 
 jobs:
   publish:
     runs-on: ubuntu-latest
+    environment: npm-publish
     steps:
       - uses: actions/checkout@v7
         with:
-          submodules: recursive   # assets/stbl submodule contents in tarball
+          submodules: recursive
 
       - name: Setup bun
         uses: oven-sh/setup-bun@v2
@@ -43,15 +41,35 @@ jobs:
         id: version
         run: echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
 
-      - name: Publish to GitHub Packages
+      # Auth: NPM_TOKEN comes from environment "npm-publish" secrets.
+      # We write .npmrc at the repo root because npm ignores .npmrc
+      # inside workspace packages and `npm config set` refuses to
+      # run inside workspaces.
+      - name: Configure npm auth
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          {
-            echo "@dot-stbl:registry=https://npm.pkg.github.com"
-            echo "//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}"
-          } > .npmrc
-          npm publish --provenance=false
+          REGISTRY=$(node -p "require('./package.json').publishConfig.registry")
+          REGISTRY_HOST=$(echo "$REGISTRY" | sed -E 's|^https?://||' | sed 's|/$||')
+          TOKEN=$(echo -n "$NPM_TOKEN" | tr -d '[:space:]')
+          if [ -z "$TOKEN" ]; then
+            echo "::error::NPM_TOKEN secret is empty or not set!"
+            exit 1
+          fi
+          printf "registry=%s\n//%s/:_authToken=%s\n" "$REGISTRY" "$REGISTRY_HOST" "$TOKEN" > .npmrc
+          chmod 600 .npmrc
+          echo "--- .npmrc (token masked) ---"
+          sed 's/_authToken=.*/_authToken=***MASKED***/' .npmrc
+
+      - name: Publish to npmjs.com
+        run: |
+          REGISTRY=$(node -p "require('./package.json').publishConfig.registry")
+          echo "Publishing @dot-stbl/regent@${{ steps.version.outputs.version }} → $REGISTRY"
+          npm publish --access public
+
+      - name: Cleanup .npmrc
+        if: always()
+        run: rm -f .npmrc
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2

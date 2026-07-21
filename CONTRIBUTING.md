@@ -175,8 +175,28 @@ Once a finding is `pending`, the team can:
 1. Bump `version` in `package.json` (SemVer; pre-1.0 means anything
    can break between minors).
 2. `git tag v0.X.Y && git push --tags`
-3. `.github/workflows/release.yml` runs OIDC trusted-publishing to
-   GitHub Packages under `@dot-stbl/regent`.
+3. `.github/workflows/release.yml` runs on the `v*` tag push and
+   publishes `@dot-stbl/regent` to **npmjs.com** under the `@dot-stbl`
+   scope (`--access public`). The job depends on a GitHub Environment
+   `npm-publish` with an `NPM_TOKEN` secret — see repo Settings.
+
+## Commit attribution policy
+
+Commits in this repository are attributed to humans only. AI
+assistants (Claude Code, Claude Opus, or any other LLM-based tool)
+must **not** be added to commit messages — neither as
+`Co-Authored-By:`, `Contributed-By:`, `Contribute-By:`,
+`Assisted-By:`, nor `Generated-By:` trailers.
+
+The `regent-agent` identity used by local LLM tooling is itself
+mapped to a generic contributor via `.mailmap` so it does not
+appear in `git shortlog` or GitHub's Insights → Contributors graph.
+
+AI-assisted work is credited in the **commit body** when relevant
+("drafted with Claude; reviewed by @author"), but never as a
+machine-parseable trailer.
+
+This is enforced by CI (`.github/workflows/lint-commits.yml`).
 
 ## Development workflow
 

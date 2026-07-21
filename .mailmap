@@ -1,0 +1,8 @@
+# Map AI-assisted agent identities to a generic contributor so
+# they don't appear in `git shortlog` or GitHub's Insights →
+# Contributors graph. The original commits still exist; this
+# only affects how attribution is displayed.
+#
+# Format: canonical-name <canonical-email> <commit-name> <commit-email>
+Regent Contributor <no.reply@regent> <agent@dot-stbl.local>
+Regent Contributor <no.reply@regent> <a.sergeev@hybrid.ai>
