@@ -46,8 +46,9 @@ jobs:
       - name: Lint
         run: bun run lint
 
+      # Use the package's Vitest script so local and CI runs share vitest.config.ts.
       - name: Test
-        run: bun test
+        run: bun run test
 
       - name: Smoke
         run: node dist/cli.js check --help

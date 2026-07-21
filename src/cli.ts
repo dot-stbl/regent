@@ -29,7 +29,7 @@
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { Command } from 'commander';
 import pc from 'picocolors';
@@ -497,7 +497,7 @@ async function runAccept(
   const cwd = process.cwd();
   // `--config` overrides the target; otherwise `--scope` selects the
   // committed config.ts, and the default is the gitignored config.local.ts.
-  const configPath = joinPath(
+  const configPath = resolve(
     cwd,
     options.config ?? (options.scope ? 'tools/audit/config.ts' : 'tools/audit/config.local.ts'),
   );
@@ -538,7 +538,7 @@ async function runReject(
     getLogger().error({}, 'reject requires <path>:<line>, not <path> alone');
     return 2;
   }
-  const rejectionsPath = joinPath(repoRoot, 'tools', 'audit', '.rejections.json');
+  const rejectionsPath = resolve(repoRoot, 'tools', 'audit', '.rejections.json');
   mkdirSync(dirname(rejectionsPath), { recursive: true });
   const current: Array<{ ruleId: string; path: string; line: number }> =
     existsSync(rejectionsPath)
@@ -572,10 +572,6 @@ function parseTarget(raw: string): { path: string; line?: number } {
     return { path: raw };
   }
   return { path, line };
-}
-
-function joinPath(...parts: string[]): string {
-  return parts.join('/').replace(/\\/g, '/');
 }
 
 /**

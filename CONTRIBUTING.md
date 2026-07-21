@@ -69,7 +69,7 @@ example packs at `examples/<lang>/`.
 5. **Verify** before committing:
 
    ```sh
-   bun test test/shipped-examples.test.ts   # L2 fixtures
+   bun run test test/shipped-examples.test.ts   # L2 fixtures
    bun run typecheck                        # TS strict
    bun run lint                              # eslint
    bun run build && node dist/cli.js check   # dogfood
@@ -155,7 +155,7 @@ Once a finding is `pending`, the team can:
 
 ## PR checklist
 
-- [ ] `bun test` exits 0; new rule fires positive fixture, ignores negative.
+- [ ] `bun run test` exits 0; new rule fires positive fixture, ignores negative.
 - [ ] `bun run typecheck` exits 0.
 - [ ] `bun run lint` exits 0.
 - [ ] `bun run build && node dist/cli.js check --all` exits 0 in
@@ -186,7 +186,7 @@ bun install
 bun run build       # tsc → dist/
 bun run typecheck   # tsc --noEmit
 bun run lint        # eslint
-bun test            # vitest run
+bun run test        # vitest run
 bun run smoke       # build + node dist/cli.js check --help
 
 # Run a specific test file
@@ -199,9 +199,10 @@ bunx vitest run test/loader.test.ts -t "loads no rules"
 
 **Important:** `regent` ships a CLI. **Do not run `node dist/cli.js
 check` repeatedly** during agent sessions — it spawns a process
-per invocation and can hit the rate limit. Use `bun test` for
-verification; the runner is invoked from a short-lived test process
-that exits cleanly.
+per invocation and can hit the rate limit. Use `bun run test` for
+verification; CI invokes the same script so Vitest and `vitest.config.ts`
+behave consistently in both environments. The runner is invoked from a
+short-lived test process that exits cleanly.
 
 ## Logging conventions
 
