@@ -15,8 +15,9 @@ export default defineDetectRule({
   globs: ['**/*.rs'],
   excludePaths: ['**/tests/**', '**/benches/**', '**/examples/**'],
   message:
-    '`unsafe { ... }` block found. Add a `// unsafe-allow: <reason>` comment ' +
-    'on the line above, or extract behind a documented safe wrapper.',
+    '`unsafe { ... }` block found. Add a `// unsafe-allow: <reason>` ' +
+    'comment on the SAME line as the `unsafe` keyword, or extract ' +
+    'behind a documented safe wrapper.',
   source: 'unsafe-block.md#rust',
   rationale:
     'Rust `unsafe` is permitted but every site should be justified. ' +

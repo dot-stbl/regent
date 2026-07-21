@@ -30,15 +30,15 @@ test.
 
 ## Authoring
 
-When you need a real `unsafe`, prefer:
+When you need a real `unsafe`, put the `// unsafe-allow: <reason>`
+comment on the SAME line as the `unsafe` keyword:
 
 ```rust
-// unsafe-allow: zero-init via set_len; len == cap == initialised bytes.
-unsafe {
+unsafe { // unsafe-allow: zero-init via set_len; len == cap == initialised.
     std::ptr::write_bytes(buf.as_mut_ptr(), 0, len);
     buf.set_len(len);
 }
 ```
 
 If the unsafe block is too complex for one-line justification, wrap
-it in a `// SAFETY:` doc comment + a private helper.
+it in a private helper and link the helper from the call site.

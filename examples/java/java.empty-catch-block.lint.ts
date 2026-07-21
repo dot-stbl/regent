@@ -10,6 +10,7 @@ export default defineDetectRule({
   id: 'java.empty-catch-block',
   severity: 'warning',
   pattern: '\\bcatch\\s*\\([^)]+\\)\\s*\\{\\s*\\}',
+  excludePaths: ['**/test/**', '**/tests/**'],
   globs: ['**/*.java'],
   message:
     'Empty `catch` block silently swallows the exception. Log, ' +

@@ -11,6 +11,7 @@ export default defineDetectRule({
   id: 'rust.unwrap-in-prod',
   severity: 'warning',
   pattern: '\\.unwrap\\s*\\(',
+  excludeWhen: '^\\s*//',
   globs: ['**/*.rs'],
   excludePaths: [
     '**/tests/**',
