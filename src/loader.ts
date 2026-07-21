@@ -26,6 +26,9 @@ import { loadConfig, type CliArgs, type ResolvedConfig } from './config/index.js
 import type { DetectRuleSpec, FixRuleSpec } from './config/schema.js';
 import type { AstRuleSpec, CompiledAstRule } from './kinds/ast.js';
 import type {
+  CompiledTransformRule,
+} from './kinds/transform.js';
+import type {
   AcceptEntry,
   CompiledRule,
   RuleOrigin,
@@ -49,6 +52,13 @@ export interface LoaderRuleSet {
   readonly rules: readonly CompiledRule[];
   /** AST-kind rules (ast-grep), run by the runner alongside regex rules. */
   readonly astRules: readonly CompiledAstRule[];
+  /**
+   * Transform-kind rules. Loaded and validated by #24; runner
+   * integration (in the pipeline after detect → fix) lands in #25.
+   * Empty unless the project has `.transform.ts` files or
+   * `rules.transform[]` inline entries.
+   */
+  readonly transformRules: readonly CompiledTransformRule[];
   readonly acceptList: readonly LoadedAcceptEntry[];
   readonly resolvedConfig: ResolvedConfig;
   readonly totalSourceLayers: number;
@@ -69,6 +79,7 @@ export async function loadRules(options: LoaderOptions): Promise<LoaderRuleSet> 
 
   const allRules: CompiledRule[] = [];
   const fileAstRules: CompiledAstRule[] = [];
+  const fileTransformRules: CompiledTransformRule[] = [];
   const seen = new Set<string>();
 
   // 1. User-global rule files
@@ -85,6 +96,9 @@ export async function loadRules(options: LoaderOptions): Promise<LoaderRuleSet> 
       }
     }
     fileAstRules.push(...await loadAstRuleFilesUnder(userGlobalRoot, 'global'));
+    fileTransformRules.push(
+      ...await loadTransformRuleFilesUnder(userGlobalRoot, 'global'),
+    );
   }
 
   // 2. Project-local rule files in tools/audit/rules/
@@ -97,6 +111,9 @@ export async function loadRules(options: LoaderOptions): Promise<LoaderRuleSet> 
       }
     }
     fileAstRules.push(...await loadAstRuleFilesUnder(repoRulesDir, 'repo'));
+    fileTransformRules.push(
+      ...await loadTransformRuleFilesUnder(repoRulesDir, 'repo'),
+    );
   }
 
   // 3. Inline rules from config.rules.detect[] and rules.fix[]
@@ -160,6 +177,60 @@ export async function loadRules(options: LoaderOptions): Promise<LoaderRuleSet> 
     }
   }
 
+  // 3c. Transform rules — loaded and registered, but the runner
+  // does not invoke them yet (#25). File-discovered first, then
+  // inline. `disable` and `override` apply.
+  const transformRules: CompiledTransformRule[] = [];
+  const transformSeen = new Set<string>();
+  for (const r of fileTransformRules) {
+    if (
+      transformSeen.has(r.spec.id)
+      || config.rules.disable.includes(r.spec.id)
+    ) {
+      continue;
+    }
+    transformRules.push(r);
+    transformSeen.add(r.spec.id);
+  }
+  for (const raw of config.rules.transform) {
+    // Inline transform rules need a runtime `transform` function.
+    // The schema only validates the static shape; without a function
+    // they would no-op. Treat the absence as a registration check
+    // error to surface the gap to the user.
+    const fn = (raw as unknown as { transform?: unknown }).transform;
+    if (typeof fn !== 'function') {
+      continue;
+    }
+    const spec = raw as unknown as CompiledTransformRule['spec'];
+    if (
+      transformSeen.has(spec.id)
+      || config.rules.disable.includes(spec.id)
+    ) {
+      continue;
+    }
+    transformRules.push({
+      spec,
+      source: spec.source ?? '<inline>',
+      origin: { kind: 'repo', path: cwd },
+    });
+    transformSeen.add(spec.id);
+  }
+  for (const [id, ov] of Object.entries(config.rules.override)) {
+    const idx = transformRules.findIndex((r) => r.spec.id === id);
+    if (idx !== -1) {
+      const existing = transformRules[idx]!;
+      const o = ov as RuleOverride;
+      transformRules[idx] = {
+        ...existing,
+        spec: {
+          ...existing.spec,
+          severity: o.severity ?? existing.spec.severity,
+          message: o.message ?? existing.spec.message,
+        },
+      };
+    }
+  }
+
   // 4. Extends — paths/globs/inline arrays
   for (const ext of config.rules.extends as readonly (string | readonly unknown[])[]) {
     const extended = await resolveExtendsItem(ext, cwd);
@@ -202,6 +273,7 @@ export async function loadRules(options: LoaderOptions): Promise<LoaderRuleSet> 
   return {
     rules: allRules,
     astRules,
+    transformRules,
     acceptList,
     resolvedConfig: config,
     totalSourceLayers:
@@ -288,6 +360,61 @@ async function importAstRuleFile(absPath: string): Promise<AstRuleSpec | undefin
     return undefined;
   }
   return undefined;
+}
+
+async function loadTransformRuleFilesUnder(
+  root: string,
+  kind: Exclude<RuleOrigin['kind'], 'preset'>,
+): Promise<CompiledTransformRule[]> {
+  if (!existsSync(root)) {
+    return [];
+  }
+  const { glob } = await import('tinyglobby');
+  const matches = await glob('**/*.transform.ts', {
+    cwd: root,
+    absolute: true,
+    onlyFiles: true,
+  });
+  const rules: CompiledTransformRule[] = [];
+  for (const absPath of matches) {
+    const spec = await importTransformRuleFile(absPath);
+    if (spec === undefined) {
+      continue;
+    }
+    const baseName = absPath.replace(/\.transform\.ts$/, '');
+    const siblingMd = `${baseName}.md`;
+    const source = spec.source ?? (existsSync(siblingMd) ? siblingMd : absPath);
+    rules.push({ spec, source, origin: { kind, path: absPath } });
+  }
+  return rules;
+}
+
+async function importTransformRuleFile(
+  absPath: string,
+): Promise<CompiledTransformRule['spec'] | undefined> {
+  try {
+    const url = pathToFileURL(absPath).href;
+    const mod = await import(url);
+    const candidates = [mod.default, mod.rule, ...Object.values(mod)];
+    for (const candidate of candidates) {
+      if (isTransformRuleSpec(candidate) && typeof candidate.transform === 'function') {
+        return candidate;
+      }
+    }
+  } catch {
+    return undefined;
+  }
+  return undefined;
+}
+
+function isTransformRuleSpec(value: unknown): value is CompiledTransformRule['spec'] {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const obj = value as Record<string, unknown>;
+  return typeof obj['id'] === 'string'
+    && typeof obj['severity'] === 'string'
+    && Array.isArray(obj['globs']);
 }
 
 async function loadRuleFilesUnder(
