@@ -71,21 +71,23 @@ function parseRoot(id: string, source: string) {
 }
 
 /**
- * Scan `source` (a whole file) with an ast-grep rule for `language`.
- * Returns every match with a precise 0-based span.
+ * Parse `source` for `language` and return the AST root. Resolves aliases
+ * (`cs` → `csharp`) + the grammar pack via the bundle registry. Call this once
+ * per file per language, then run many rules over the returned root with
+ * `matchRuleOnRoot` — parsing is the expensive step, matching is cheap.
  */
-export async function scanAst(
-  language: string,
-  source: string,
-  config: AstGrepConfig,
-): Promise<AstMatch[]> {
-  // Resolve aliases (e.g. `cs` → `csharp`) and the grammar pack via the
-  // bundle registry; fall back to the `@ast-grep/lang-<id>` convention for
-  // languages not in the registry.
+export async function parseSource(language: string, source: string) {
   const bundle = resolveBundle(language);
   const id = bundle?.id ?? language.toLowerCase();
   await registerAll();
-  const root = parseRoot(id, source);
+  return parseRoot(id, source);
+}
+
+/** Run one ast-grep rule against a pre-parsed root; returns precise matches. */
+export function matchRuleOnRoot(
+  root: ReturnType<typeof parseRoot>,
+  config: AstGrepConfig,
+): AstMatch[] {
   const hits = root.findAll(config as never);
   return hits.map((node) => {
     const r = node.range();
@@ -97,4 +99,18 @@ export async function scanAst(
       text: node.text(),
     };
   });
+}
+
+/**
+ * Scan `source` (a whole file) with a single ast-grep rule. Convenience
+ * wrapper over `parseSource` + `matchRuleOnRoot`; the runner uses the two
+ * separately so it can parse once per file and run many rules over the tree.
+ */
+export async function scanAst(
+  language: string,
+  source: string,
+  config: AstGrepConfig,
+): Promise<AstMatch[]> {
+  const root = await parseSource(language, source);
+  return matchRuleOnRoot(root, config);
 }

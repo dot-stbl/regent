@@ -38,7 +38,7 @@ import {
   extractContext,
   type RegexMatcher,
 } from './regex.js';
-import { scanAst, type AstMatch } from './ast/matcher.js';
+import { parseSource, matchRuleOnRoot } from './ast/matcher.js';
 import type { CompiledAstRule } from './kinds/ast.js';
 import type {
   AcceptEntry,
@@ -458,7 +458,11 @@ async function scanFile(
     }
   }
 
-  // AST-kind rules: parse the file with ast-grep and emit precise findings.
+  // AST-kind rules: group by language, parse each file ONCE per language, then
+  // run every rule of that language over the shared tree (parsing is the
+  // expensive step; matching is cheap). A missing language pack or parse error
+  // skips that language rather than failing the whole run.
+  const astByLang = new Map<string, CompiledAstRule[]>();
   for (const astRule of astRules) {
     if (!matchesScopePattern(astRule.spec, file)) {
       continue;
@@ -466,34 +470,41 @@ async function scanFile(
     if (matchesExcludePath(astRule.spec.excludePaths, file)) {
       continue;
     }
-    let astMatches: AstMatch[];
-    try {
-      astMatches = await scanAst(astRule.spec.language, content, astRule.spec.ast);
-    } catch {
-      // Missing language pack or a parse error — skip this rule rather than
-      // failing the whole run. (Missing-pack errors surface at authoring time.)
-      continue;
+    const list = astByLang.get(astRule.spec.language);
+    if (list) {
+      list.push(astRule);
+    } else {
+      astByLang.set(astRule.spec.language, [astRule]);
     }
-    for (const am of astMatches) {
-      const startByte = (lineOffsets[am.startLine] ?? 0) + am.startColumn;
-      const endByte = (lineOffsets[am.endLine] ?? 0) + am.endColumn;
-      findings.push({
-        ruleId: astRule.spec.id,
-        severity: astRule.spec.severity,
-        path: file,
-        match: {
-          startLine: am.startLine,
-          startColumn: am.startColumn,
-          endLine: am.endLine,
-          endColumn: am.endColumn,
-          matchText: fileLines[am.startLine] ?? am.text,
-        },
-        context: extractContext(content, startByte, endByte, contextBuffer),
-        message: astRule.spec.message,
-        source: astRule.source,
-        rationale: astRule.spec.rationale,
-        status: 'violation',
-      });
+  }
+  for (const [language, rulesForLang] of astByLang) {
+    try {
+      const root = await parseSource(language, content);
+      for (const astRule of rulesForLang) {
+        for (const am of matchRuleOnRoot(root, astRule.spec.ast)) {
+          const startByte = (lineOffsets[am.startLine] ?? 0) + am.startColumn;
+          const endByte = (lineOffsets[am.endLine] ?? 0) + am.endColumn;
+          findings.push({
+            ruleId: astRule.spec.id,
+            severity: astRule.spec.severity,
+            path: file,
+            match: {
+              startLine: am.startLine,
+              startColumn: am.startColumn,
+              endLine: am.endLine,
+              endColumn: am.endColumn,
+              matchText: fileLines[am.startLine] ?? am.text,
+            },
+            context: extractContext(content, startByte, endByte, contextBuffer),
+            message: astRule.spec.message,
+            source: astRule.source,
+            rationale: astRule.spec.rationale,
+            status: 'violation',
+          });
+        }
+      }
+    } catch {
+      // Missing language pack or parse error — skip this language.
     }
   }
 
