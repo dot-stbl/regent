@@ -65,3 +65,17 @@ export type {
 } from './types.js';
 export { validateFixSpec } from './types.js';
 export type { TransformRuleSpec } from './config/schema.js';
+
+// Fixer (P2 engine, surfaced via P3 `regent fix` CLI). Library callers
+// can drive the same engine programmatically via these exports; the CLI
+// is a thin wrapper that adds config loading, scope filters, and a
+// confirmation prompt.
+export {
+  applyFixes,
+  expandTemplate,
+  type ApplyFixesOptions,
+  type ApplyFixesResult,
+  type AppliedEdit,
+  type DeferredEdit,
+  type SuggestedEdit,
+} from './fixer.js';
