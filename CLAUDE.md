@@ -175,5 +175,5 @@ The accept-list only silences **review-rule** findings — it does not affect pl
 
 `assets/stbl/` is a git submodule of `dot-stbl/.github`. Update with
 `git submodule update --remote assets/stbl`. Modify the kit itself via a PR on that repo,
-not here. Release publishing goes to GitHub Packages via `.github/workflows/release.yml`
+not here. Release publishing goes to npmjs.com via `.github/workflows/release.yml`
 on a `v*` tag.

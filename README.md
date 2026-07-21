@@ -47,23 +47,8 @@ for context.
 
 ## Install
 
-`@dot-stbl/regent` ships via **GitHub Packages** under the `@dot-stbl`
-scope. Free for public packages.
-
-### One-time setup
-
-1. **Generate a Personal Access Token (classic)** with the
-   `read:packages` scope at <https://github.com/settings/tokens/new>.
-
-2. **Configure `~/.npmrc`** so the `@dot-stbl` scope routes to GitHub
-   Packages:
-
-   ```ini
-   @dot-stbl:registry=https://npm.pkg.github.com
-   //npm.pkg.github.com/:_authToken=ghp_your_token_here
-   ```
-
-### Install
+`@dot-stbl/regent` ships on **npmjs.com** under the `@dot-stbl` scope.
+No GitHub Packages PAT required — install like any other public package.
 
 ```sh
 # Project dependency
@@ -75,10 +60,6 @@ bun add -g @dot-stbl/regent
 # Run without install (bunx caches on first use)
 bunx @dot-stbl/regent check
 ```
-
-> Visibility: GitHub Packages defaults to **private** on first publish.
-> Make the package public via
-> <https://github.com/orgs/dot-stbl/packages/npm/regent/settings>.
 
 ## Quickstart
 
