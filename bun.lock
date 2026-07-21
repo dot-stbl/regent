@@ -6,6 +6,9 @@
       "name": "@dot-stbl/regent",
       "dependencies": {
         "@ast-grep/lang-csharp": "^0.0.6",
+        "@ast-grep/lang-go": "^0.0.6",
+        "@ast-grep/lang-rust": "^0.0.7",
+        "@ast-grep/lang-typescript": "^0.0.7",
         "@ast-grep/napi": "^0.44.1",
         "commander": "^15.0.0",
         "cosmiconfig": "^9.0.2",
@@ -32,10 +35,19 @@
     },
   },
   "trustedDependencies": [
+    "@ast-grep/lang-go",
+    "@ast-grep/lang-rust",
+    "@ast-grep/lang-typescript",
     "@ast-grep/lang-csharp",
   ],
   "packages": {
     "@ast-grep/lang-csharp": ["@ast-grep/lang-csharp@0.0.6", "", { "dependencies": { "@ast-grep/setup-lang": "0.0.6" }, "peerDependencies": { "tree-sitter-cli": "0.25.8" }, "optionalPeers": ["tree-sitter-cli"] }, "sha512-9Aq0WvJ5wRdJ+iply7H2Aq89o2BOdxFXh3H9tLvf8DryyHgWAQA/CRKUw1HjV8Q4ABUZFl1vLq9Uv3t0gQtZdQ=="],
+
+    "@ast-grep/lang-go": ["@ast-grep/lang-go@0.0.6", "", { "dependencies": { "@ast-grep/setup-lang": "0.0.6" }, "peerDependencies": { "tree-sitter-cli": "0.25.8" }, "optionalPeers": ["tree-sitter-cli"] }, "sha512-PZap9Rp6t+YKbLjRnFRF5aGBX3/HV9s5Rp7ZPsCM+o3tlTZDo1IqDYnFu+Oeh5Razs2U8K8ccPSJ+GBxalVhWg=="],
+
+    "@ast-grep/lang-rust": ["@ast-grep/lang-rust@0.0.7", "", { "dependencies": { "@ast-grep/setup-lang": "0.0.6" }, "peerDependencies": { "tree-sitter-cli": "0.25.8" }, "optionalPeers": ["tree-sitter-cli"] }, "sha512-CF6jv8XmlVQgr/pFKADM87EkoGiHIrHKsG1wcX2iqgdBX5kW8wH+Zd4GP6SMme2eZogD49f19vRoRTF44iZqzg=="],
+
+    "@ast-grep/lang-typescript": ["@ast-grep/lang-typescript@0.0.7", "", { "dependencies": { "@ast-grep/setup-lang": "0.0.6" }, "peerDependencies": { "tree-sitter-cli": "0.25.8" }, "optionalPeers": ["tree-sitter-cli"] }, "sha512-PMUzzOFd+LojjV993oKecdMjswJebQ/rpg5O3PFhO5lYoSeGDy/hyglV6BtO9hUNaI5CNDAAVe00qznrLQmPlg=="],
 
     "@ast-grep/napi": ["@ast-grep/napi@0.44.1", "", { "optionalDependencies": { "@ast-grep/napi-darwin-arm64": "0.44.1", "@ast-grep/napi-darwin-x64": "0.44.1", "@ast-grep/napi-linux-arm64-gnu": "0.44.1", "@ast-grep/napi-linux-arm64-musl": "0.44.1", "@ast-grep/napi-linux-x64-gnu": "0.44.1", "@ast-grep/napi-linux-x64-musl": "0.44.1", "@ast-grep/napi-win32-arm64-msvc": "0.44.1", "@ast-grep/napi-win32-ia32-msvc": "0.44.1", "@ast-grep/napi-win32-x64-msvc": "0.44.1" } }, "sha512-dJAJVYRKmUjXn+4mXUgfRvMrWujB9mLzPSq/2e8J7n6Hn3dY4jpZNpChj6hMi7PlZ2J2c7coAVoDBaax06uvXw=="],
 
