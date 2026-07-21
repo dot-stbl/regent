@@ -43,6 +43,14 @@ export type {
   RuleSpec,
   RuleOverride,
   RuleReviewSpec,
+  RuleFixSpec,
+  RuleFixReplace,
+  RuleFixDeleteLine,
+  RuleFixFunction,
+  RuleFixGuidanceOnly,
+  RuleFixSafety,
+  RuleFixContext,
+  RuleFixEdit,
   Severity,
   AcceptEntry,
   ConfigLayer,
@@ -55,4 +63,5 @@ export type {
   RunnerScope,
   RunResult,
 } from './types.js';
+export { validateFixSpec } from './types.js';
 export type { TransformRuleSpec } from './config/schema.js';

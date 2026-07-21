@@ -57,6 +57,71 @@ const RuleReviewSpecSchema = z
   })
   .strict();
 
+const FixSafetySchema = z.union([z.literal('safe'), z.literal('suggested')]);
+
+const RuleFixReplaceSchema = z
+  .object({
+    kind: z.literal('replace'),
+    safety: FixSafetySchema,
+    title: z.string().min(1),
+    guidance: z.string().optional(),
+    template: z.string(),
+    targetGroup: z.union([z.number(), z.string()]).optional(),
+  })
+  .strict();
+
+const RuleFixDeleteLineSchema = z
+  .object({
+    kind: z.literal('delete-line'),
+    safety: FixSafetySchema,
+    title: z.string().min(1),
+    guidance: z.string().optional(),
+    alsoDeleteMatching: z.string().optional(),
+  })
+  .strict();
+
+/**
+ * The function-form is accepted by Zod (the `apply` function passes
+ * schema validation), but inline `rules.detect[]` entries without a
+ * real function are dropped at load time (see loader `transformInlineFix`).
+ * The runtime contract is enforced by the fixer engine (P2) when it
+ * invokes `apply` — `null` declines, any side effects or non-purity
+ * would defeat the content-hash cache.
+ */
+const RuleFixFunctionSchema = z
+  .object({
+    kind: z.literal('function'),
+    safety: FixSafetySchema,
+    title: z.string().min(1),
+    guidance: z.string().optional(),
+    // `apply` is a runtime function; Zod can't type-validate it.
+    // The loader runtime-checks that the field is a function before
+    // accepting the rule (see loader `validateFixRuntime`).
+    apply: z.unknown(),
+  })
+  .strict();
+
+const RuleFixGuidanceOnlySchema = z
+  .object({
+    kind: z.literal('guidance-only'),
+    safety: FixSafetySchema,
+    title: z.string().min(1),
+    guidance: z.string().optional(),
+  })
+  .strict();
+
+/**
+ * Discriminated union for the optional `fix` field on a rule spec
+ * (P1 of the fix-mode epic). The safety↔kind invariants are
+ * enforced by the loader via `validateFixSpec`.
+ */
+const RuleFixSpecSchema = z.discriminatedUnion('kind', [
+  RuleFixReplaceSchema,
+  RuleFixDeleteLineSchema,
+  RuleFixFunctionSchema,
+  RuleFixGuidanceOnlySchema,
+]);
+
 const DetectRuleSpecSchema = z
   .object({
     id: z.string().min(1),
@@ -69,6 +134,7 @@ const DetectRuleSpecSchema = z
     source: z.string().optional(),
     rationale: z.string().optional(),
     review: RuleReviewSpecSchema.optional(),
+    fix: RuleFixSpecSchema.optional(),
     dependsOn: z.array(z.string().min(1)).readonly().optional(),
   })
   .strict();
