@@ -169,7 +169,7 @@ export function renderSarif(
         tool: {
           driver: {
             name: '@dot-stbl/regent',
-            version: '0.1.0',
+            version: '0.3.0',
             informationUri: 'https://github.com/dot-stbl/regent',
             rules: reportingDescriptors,
           },

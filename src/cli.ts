@@ -58,7 +58,7 @@ import {
 import { createLogger, type Logger } from './logging/index.js';
 import { isLogLevel, type LogLevel } from './logging/levels.js';
 
-const VERSION = '0.2.0';
+const VERSION = '0.3.0';
 
 const program = new Command();
 
