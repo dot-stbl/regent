@@ -23,11 +23,13 @@ import { isAbsolute, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { loadConfig, type CliArgs, type ResolvedConfig } from './config/index.js';
-import type { DetectRuleSpec, FixRuleSpec } from './config/schema.js';
+import type { FixRuleSpec } from './config/schema.js';
 import type { AstRuleSpec, CompiledAstRule } from './kinds/ast.js';
 import type {
   CompiledTransformRule,
 } from './kinds/transform.js';
+import type { RuleFixSpec } from './types.js';
+import { validateFixSpec } from './types.js';
 import type {
   AcceptEntry,
   CompiledRule,
@@ -119,8 +121,21 @@ export async function loadRules(options: LoaderOptions): Promise<LoaderRuleSet> 
   // 3. Inline rules from config.rules.detect[] and rules.fix[]
   for (const spec of config.rules.detect) {
     if (!seen.has(spec.id)) {
+      // P1 of the fix-mode epic: validate the optional `fix` field at
+      // load time. `safe` + `guidance-only` is a contradiction; the
+      // function-kind must carry a real function. Throws on either,
+      // surfacing the misconfiguration as a clear loader error.
+      //
+      // The `as RuleFixSpec` cast bridges the Zod-inferred `apply:
+      // unknown` to the typed function shape — `assertFixApply`
+      // validates at runtime that the field is actually a function.
+      if (spec.fix !== undefined) {
+        const fix = spec.fix as RuleFixSpec & { apply?: unknown };
+        assertFixSafety(fix);
+        assertFixApply(fix);
+      }
       allRules.push({
-        spec,
+        spec: spec as unknown as RuleSpec,
         source: spec.source ?? '<inline>',
         origin: { kind: 'repo', path: cwd },
       });
@@ -290,7 +305,15 @@ export async function loadRules(options: LoaderOptions): Promise<LoaderRuleSet> 
 // Internal: rule-file discovery + spec import
 // ---------------------------------------------------------------------------
 
-function isDetectRuleSpec(value: unknown): value is DetectRuleSpec {
+/**
+ * Detect-rule shape predicate. The return type is widened to
+ * `RuleSpec` (with the canonical function-typed `apply`) so the
+ * downstream loader code can treat the value as a real rule. The
+ * `fix.apply: unknown` from the Zod-inferred `DetectRuleSpec` is
+ * bridged by this cast; `assertFixApply` runtime-validates that
+ * the field is actually a function for the function-kind.
+ */
+function isDetectRuleSpec(value: unknown): value is RuleSpec {
   if (typeof value !== 'object' || value === null) {
     return false;
   }
@@ -417,6 +440,39 @@ function isTransformRuleSpec(value: unknown): value is CompiledTransformRule['sp
     && Array.isArray(obj['globs']);
 }
 
+/**
+ * Runtime-narrow the Zod-inferred `apply: unknown` to the typed
+ * function shape, after verifying it really is a function. Throws
+ * if the spec is inconsistent. Returns `null` when the spec is
+ * consistent and the function-form `apply` has been narrowed.
+ *
+ * For non-function kinds this is a no-op (the function-kind assertion
+ * is the only place we need runtime narrowing).
+ */
+function assertFixApply(
+  fix: RuleFixSpec & { apply?: unknown },
+): asserts fix is RuleFixSpec {
+  if (fix.kind === 'function' && typeof fix.apply !== 'function') {
+    throw new Error(
+      `fix.kind === 'function' requires \`apply\` to be a function; got ${typeof fix.apply}`,
+    );
+  }
+}
+
+/**
+ * Enforce the safety↔kind invariants from `validateFixSpec` at
+ * load time. The Zod schema alone can't enforce `safe` +
+ * `guidance-only` being a contradiction (the schema is a
+ * discriminated union on `kind` only). Throw loudly when the rule
+ * is misconfigured.
+ */
+function assertFixSafety(fix: RuleFixSpec): void {
+  const result = validateFixSpec(fix);
+  if (result !== true) {
+    throw new Error(`fix validation failed for rule: ${result}`);
+  }
+}
+
 async function loadRuleFilesUnder(
   root: string,
   kind: Exclude<RuleOrigin['kind'], 'preset'>,
@@ -436,6 +492,14 @@ async function loadRuleFilesUnder(
     const spec = await importRuleFile(absPath);
     if (spec === undefined) {
       continue;
+    }
+    // Validate the optional `fix` field at load time. Same contract
+    // as the inline-rules path: safety↔kind invariants + the
+    // function-kind `apply` must be a real function.
+    if (spec.fix !== undefined) {
+      const fix = spec.fix as RuleFixSpec & { apply?: unknown };
+      assertFixSafety(fix);
+      assertFixApply(fix);
     }
     const baseName = absPath.replace(/\.(lint|rule)\.ts$/, '');
     const siblingMd = `${baseName}.md`;

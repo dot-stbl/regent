@@ -71,6 +71,14 @@ export interface RuleSpec {
    * than failing CI directly.
    */
   readonly review?: RuleReviewSpec;
+
+  /**
+   * Optional auto-fix attachment. See {@link RuleFixSpec} for the
+   * four-lane design (`replace` / `delete-line` / `function` /
+   * `guidance-only`). The loader validates safety↔kind invariants
+   * via {@link validateFixSpec}.
+   */
+  readonly fix?: RuleFixSpec;
 }
 
 /**
@@ -113,6 +121,155 @@ export interface AcceptEntry {
   readonly line?: number;
   /** Free-text, max 500 chars. Required. */
   readonly reason: string;
+}
+
+/**
+ * Safety lane for a `RuleFixSpec`:
+ * - `'safe'`: deterministic, semantics-preserving; `regent fix`
+ *   applies the edit without opt-in.
+ * - `'suggested'`: requires `--unsafe` to apply, or the LLM agent
+ *   applies judgement per item (per the agent JSON schema in P5).
+ */
+export type RuleFixSafety = 'safe' | 'suggested';
+
+/**
+ * Discriminated union for the optional `fix` field on a `RuleSpec`.
+ *
+ * Run-time application lands in P2 (`fixer.ts`); the data model is
+ * locked in here so P5 (JSON agent schema) and P6 (SARIF emission)
+ * can wire their shape without a breaking change.
+ */
+export type RuleFixSpec =
+  | RuleFixReplace
+  | RuleFixDeleteLine
+  | RuleFixFunction
+  | RuleFixGuidanceOnly;
+
+interface RuleFixBase {
+  /**
+   * `safe` → auto-applied by `regent fix`. `suggested` → surfaced
+   * via JSON / SARIF; never auto-applied without `--unsafe`.
+   */
+  readonly safety: RuleFixSafety;
+
+  /**
+   * One-line description of the change. Shown in dry-run / diff
+   * output and as the SARIF `fix.description.text`.
+   */
+  readonly title: string;
+
+  /**
+   * For the agent: when NOT to apply, or what judgement is required.
+   * Surfaced in `applied` / `suggested` blocks per the P5 schema.
+   */
+  readonly guidance?: string;
+}
+
+/**
+ * `replace`: template-driven, matches `RuleSpec.pattern` and substitutes
+ * `template`. `template` MAY be empty (means "delete the match").
+ * `$1`, `$2`, … / `${name}` expand capture groups from `pattern`.
+ */
+export interface RuleFixReplace extends RuleFixBase {
+  readonly kind: 'replace';
+  readonly template: string;
+  /**
+   * Restrict replacement to a capture group span instead of the
+   * whole match. Undefined → the full match is replaced.
+   */
+  readonly targetGroup?: number | string;
+}
+
+/**
+ * `delete-line`: deletes the matched line(s) (and the trailing `\n`).
+ * `alsoDeleteMatching` removes a paired line matching the given
+ * RE2 pattern (e.g. `#endregion` next to `#region`).
+ */
+export interface RuleFixDeleteLine extends RuleFixBase {
+  readonly kind: 'delete-line';
+  readonly alsoDeleteMatching?: string;
+}
+
+/**
+ * `function`: programmatic. `apply(ctx) → FixEdit[] | null` MUST be
+ * pure + deterministic. Returning `null` declines the rewrite.
+ *
+ * The function-form is reserved for cases the declarative shape
+ * can't express; the cache keying for this kind is hashed on the
+ * rule id + file content (same as the other kinds).
+ */
+export interface RuleFixFunction extends RuleFixBase {
+  readonly kind: 'function';
+  /**
+   * Pure + deterministic transformer. Implementation passes via the
+   * `defineRule` wrapper which erases the function from the on-disk
+   * JSON shape; inline `rules.fix[]` entries without a function are
+   * silently dropped (see P2 acceptance).
+   */
+  readonly apply: (ctx: RuleFixContext) => readonly RuleFixEdit[] | null;
+}
+
+/**
+ * `guidance-only`: no edit. `regent fix` surfaces the `title` +
+ * `guidance` in the agent's `suggested` block; the agent decides
+ * whether to apply. This lane is the only one valid for `safety:
+ * 'suggested'` without an `--unsafe` opt-in.
+ */
+export interface RuleFixGuidanceOnly extends RuleFixBase {
+  readonly kind: 'guidance-only';
+}
+
+/**
+ * Input to a `RuleFixFunction.apply`. Implementation-agnostic — the
+ * function receives the file path + content and returns a list of
+ * edits, each spanning a byte range. Returning `null` declines.
+ */
+export interface RuleFixContext {
+  readonly filePath: string;
+  readonly content: string;
+}
+
+/**
+ * A single edit produced by a `RuleFixFunction.apply`. Offsets are
+ * file-absolute byte positions.
+ */
+export interface RuleFixEdit {
+  readonly start: number;
+  readonly end: number;
+  readonly replacement: string;
+}
+
+/**
+ * Validate a `RuleFixSpec` for safety↔kind invariants:
+ * - `safe` MUST carry a concrete `kind` (replace / delete-line /
+ *   function). `guidance-only` MUST be `suggested`.
+ *
+ * Returns `true` on success; returns an error message string when
+ * the fix violates the contract. The loader calls this and fails
+ * loud on `string` return.
+ */
+export function validateFixSpec(
+  fix: RuleFixSpec,
+): true | string {
+  if (fix.safety === 'safe' && fix.kind === 'guidance-only') {
+    return 'safe fixes must carry a concrete kind (replace / delete-line / function); guidance-only is suggested-only';
+  }
+  if (fix.safety === 'suggested' && fix.kind === 'guidance-only') {
+    return true;
+  }
+  if (fix.safety === 'suggested') {
+    return true;
+  }
+  // safety === 'safe' + concrete kind
+  switch (fix.kind) {
+    case 'replace':
+    case 'delete-line':
+    case 'function':
+      return true;
+    case 'guidance-only':
+      // unreachable: handled above
+      return 'unreachable';
+  }
 }
 
 /**
