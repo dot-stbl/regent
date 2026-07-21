@@ -112,6 +112,11 @@ interface LintRule {
 const LINT_RULES: readonly LintRule[] = [
   {
     language: 'csharp',
+    registryId: 'csharp.exceptions.brace-style',
+    specId: 'csharp.exceptions.brace-style',
+  },
+  {
+    language: 'csharp',
     registryId: 'csharp.async.configure-await',
     specId: 'csharp.async.configure-await',
   },

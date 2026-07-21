@@ -8,13 +8,9 @@
  *
  * Flags (P3 + P4 + P5 scope):
  *   --dry-run              show what would change; do not write
- *   --all                  apply `safety: 'suggested'` edits too (otherwise
- *                          those surface in `suggested[]` for the agent).
- *                          Note: unlike `check`, `fix` always scans the
- *                          whole tree (`changedOnly: false`) — git is
- *                          not the default undo log here because the user
- *                          is explicitly destructing files. Use `[paths...]`
- *                          to narrow the scope.
+ *   --unsafe               apply function-form and `safety: 'suggested'`
+ *                          edits; prints a review-diff safety note.
+ *   --all                  DEPRECATED alias for `--unsafe`; kept until v2.
  *   --rule <id>            restrict to listed rule ids (repeatable)
  *   --filter <glob>        restrict to file paths matching glob
  *   --format text|json     output format (default text). `json` emits
@@ -46,7 +42,6 @@
  *
  * Out of scope (later phases):
  *   - `--include-rules` / `--exclude-rules` (full shell-glob semantics)
- *   - function-form fix lane (P7)
  *   - per-rule `--rule` patterns (we only accept literal ids today;
  *     shell-style globs ship with the `--include-rules` round in P5)
  */
@@ -81,7 +76,9 @@ import { toV1Json } from '../reporter/fix-schema.js';
  *  engine can't act on. */
 export interface FixOptions {
   dryRun?: boolean;
+  /** Deprecated alias for `--unsafe`. */
   all?: boolean;
+  unsafe?: boolean;
   /** Repeated `--rule <id>` collection. Empty = unrestricted. */
   rule?: readonly string[];
   /** Glob matched against finding paths (relative to cwd). */
@@ -119,10 +116,11 @@ const EXCLUDE_GLOBS: readonly string[] = [
 export function registerFixCommand(program: Command): void {
   program
     .command('fix')
-    .description('apply auto-fixes; --dry-run for diff-only, --all for suggested lane, --max-passes <n> for fixpoint')
+    .description('apply auto-fixes; --dry-run for diff-only, --unsafe for function fixes, --max-passes <n> for fixpoint')
     .argument('[paths...]', 'paths to scan (default: cwd)')
     .option('--dry-run', 'print what would change; do not write')
-    .option('--all', 'apply safety=suggested edits (otherwise surface in suggested[])')
+    .option('--unsafe', 'enable function-form and safety=suggested fixes; review the diff')
+    .option('--all', 'DEPRECATED alias for --unsafe (will be removed in v2)')
     .option('--rule <id>', 'restrict to one rule id (repeatable)', collectValues, [])
     .option('--filter <glob>', 'restrict to file paths matching glob (against finding path)')
     .option('--format <fmt>', 'output format: text|json (default text)')
@@ -158,6 +156,16 @@ function parseMaxPasses(value: string): number {
  */
 function collectValues(value: string, prev: readonly string[]): string[] {
   return [...prev, value];
+}
+
+function resolveLane(options: FixOptions): 'safe' | 'all' {
+  if (options.unsafe === true) {
+    process.stderr.write('note: --unsafe enables function-form fixes; review the diff before committing\n');
+  }
+  if (options.all === true) {
+    process.stderr.write('warning: --all is deprecated, use --unsafe (will be removed in v2)\n');
+  }
+  return options.unsafe === true || options.all === true ? 'all' : 'safe';
 }
 
 /**
@@ -196,6 +204,7 @@ export async function runFix({ paths, options }: RunFixArgs): Promise<number> {
   const cwd = process.cwd();
   const useColor = shouldUseColor();
   const format = resolveFormat(options, useColor);
+  const lane = resolveLane(options);
   const isJson = format === 'json';
 
   // 1. Load rules + config
@@ -311,7 +320,7 @@ export async function runFix({ paths, options }: RunFixArgs): Promise<number> {
   const applyOptions: ApplyFixesOptions = {
     cwd,
     dryRun: options.dryRun === true,
-    lane: options.all === true ? 'all' : 'safe',
+    lane,
     ...(options.maxPasses !== undefined ? { maxPasses: options.maxPasses } : {}),
     acceptList: loaded.acceptList,
     contextBuffer: loaded.resolvedConfig.output.contextBuffer,
@@ -517,7 +526,7 @@ function renderHuman(
   if (totalSuggested > 0) {
     const total = useColor ? pc.cyan(String(totalSuggested)) : String(totalSuggested);
     lines.push(
-      `Suggested: ${total} (requires --all or agent judgement)`,
+      `Suggested: ${total} (requires --unsafe or agent judgement)`,
     );
   }
 
