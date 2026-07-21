@@ -12,6 +12,7 @@ export function defaultConfig(): RegentConfig {
       detect: [],
       fix: [],
       ast: [],
+      transform: [],
       extends: [],
       disable: [],
       override: {},

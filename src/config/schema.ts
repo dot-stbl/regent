@@ -107,6 +107,31 @@ const AstRuleSpecSchema = z
   .strict();
 
 /**
+ * `TransformRuleSpec` — programmatic whole-file rewrite.
+ *
+ * The `transform` function takes the file path and the current content,
+ * returns the new content. It MUST be pure + deterministic (returning
+ * `null` declines the rewrite); non-pure transforms would defeat the
+ * content-hash cache and make `--check` non-idempotent.
+ *
+ * Wiring into the runner pipeline (detect → fix → transform) lands in
+ * the v0.3 follow-up #25. Until then, transform rules are loaded and
+ * validated, but never invoked.
+ */
+const TransformRuleSpecSchema = z
+  .object({
+    id: z.string().min(1),
+    severity: SeveritySchema,
+    globs: GlobListSchema,
+    excludePaths: GlobListSchema.optional(),
+    message: z.string().min(1),
+    source: z.string().optional(),
+    rationale: z.string().optional(),
+    dependsOn: z.array(z.string().min(1)).readonly().optional(),
+  })
+  .strict();
+
+/**
  * Named exclude-group dictionary. Keys are bare names (no `@` prefix).
  * Values are glob arrays. Validated against duplicate / reserved names.
  */
@@ -138,6 +163,7 @@ const RulesSectionSchema = z
     detect: z.array(DetectRuleSpecSchema).readonly().default([]),
     fix: z.array(FixRuleSpecSchema).readonly().default([]),
     ast: z.array(AstRuleSpecSchema).readonly().default([]),
+    transform: z.array(TransformRuleSpecSchema).readonly().default([]),
     // `extends` accepts paths, globs, or arrays of inline rules.
     // Resolution semantics are unchanged from v0.1; the schema just
     // surfaces the union type.
@@ -149,11 +175,12 @@ const RulesSectionSchema = z
     override: z.record(z.string().min(1), RuleOverrideSchema).default({}),
     accept: z.array(AcceptEntrySchema).readonly().default([]),
   })
-  .strict()
+.strict()
   .default({
     detect: [],
     fix: [],
     ast: [],
+    transform: [],
     extends: [],
     disable: [],
     override: {},
@@ -219,6 +246,7 @@ export const RegentConfigSchema = z
       detect: [],
       fix: [],
       ast: [],
+      transform: [],
       extends: [],
       disable: [],
       override: {},
@@ -235,6 +263,7 @@ export const RegentConfigSchema = z
 export type RegentConfig = z.infer<typeof RegentConfigSchema>;
 export type DetectRuleSpec = z.infer<typeof DetectRuleSpecSchema>;
 export type FixRuleSpec = z.infer<typeof FixRuleSpecSchema>;
+export type TransformRuleSpec = z.infer<typeof TransformRuleSpecSchema>;
 
 /**
  * Try to parse a candidate object against `RegentConfigSchema`. On

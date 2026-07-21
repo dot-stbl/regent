@@ -16,7 +16,12 @@
  */
 
 export { defineRule, defineConfig } from './define-rule.js';
-export { defineDetectRule, defineFixRule, defineAstRule } from './kinds/index.js';
+export {
+  defineDetectRule,
+  defineFixRule,
+  defineTransformRule,
+  defineAstRule,
+} from './kinds/index.js';
 export { loadRules, type LoaderOptions, type LoaderRuleSet, type LoadedAcceptEntry } from './loader.js';
 export { runRules, runRulesStream, severityAtOrAbove, relativePath, type ScanEvent } from './runner.js';
 export { renderText, renderSummary, renderFinding } from './reporter/text.js';
@@ -28,7 +33,11 @@ export { patterns, type RegexBuilder } from './patterns/index.js';
 export { DiskCache, cacheKeyFor, defaultCachePath, type CacheKey, type CacheEntry, type CacheStore, type CacheStats } from './core/cache.js';
 export { scanAst, type AstGrepConfig, type AstMatch } from './ast/matcher.js';
 export { BUNDLES, resolveBundle, type LanguageBundle } from './bundles/index.js';
-export type { AstRuleSpec, CompiledAstRule } from './kinds/ast.js';
+export type {
+  AstRuleSpec,
+  CompiledAstRule,
+  CompiledTransformRule,
+} from './kinds/index.js';
 
 export type {
   RuleSpec,
@@ -46,3 +55,4 @@ export type {
   RunnerScope,
   RunResult,
 } from './types.js';
+export type { TransformRuleSpec } from './config/schema.js';
