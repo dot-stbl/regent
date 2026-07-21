@@ -38,11 +38,21 @@ import { loadRules } from './loader.js';
 import { runRules } from './runner.js';
 import { renderText, renderSummary } from './reporter/text.js';
 import { renderSarif } from './reporter/sarif.js';
+import { renderJsonFromRun } from './reporter/json.js';
 import { renderReview, renderReviewJson } from './reporter/review.js';
 import type { AcceptEntry, Finding, RunnerScope, Severity } from './types.js';
 import { renderBanner } from './cli/banner.js';
 import { loadLlmText } from './llm.js';
 import { routeLlm } from './llm-router.js';
+import { renderDetectSchemaJson, renderFixSchemaJson } from './llm-schema.js';
+import { loadConfig } from './config/index.js';
+import {
+  showField,
+  formatShow,
+  diffFromDefaults,
+  formatDiff,
+  formatLayers,
+} from './config/inspect.js';
 import { createLogger, type Logger } from './logging/index.js';
 import { isLogLevel, type LogLevel } from './logging/levels.js';
 
@@ -133,6 +143,16 @@ program
   .description('Create a starter tools/audit/ tree in the current repo')
   .action(() => {
     runInit();
+  });
+
+program
+  .command('config')
+  .description('Inspect the merged config: show/diff/layers (issue #15)')
+  .argument('[subcommand]', 'show <field> | diff | layers')
+  .argument('[field]', 'dotted config path (for `show`)')
+  .action(async (subcommand?: string, field?: string) => {
+    const exitCode = await runConfig(subcommand ?? '', field ?? '');
+    process.exit(exitCode);
   });
 
 program
@@ -283,8 +303,24 @@ program
   .command('llm')
   .description('Print LLM-friendly skill documentation')
   .argument('[sub...]', 'subcommand path (e.g. "authoring detect", "examples csharp")')
-  .action((sub: string[]) => {
+  .option('--json', 'emit JSON Schema instead of markdown (works for "schema detect" / "schema fix")')
+  .action((sub: string[], options) => {
     const subArgs = sub ?? [];
+    // `--json` short-circuits the markdown router for the two schema
+    // subcommands; other subcommands ignore the flag and behave as before.
+    if (options.json) {
+      if (subArgs.length === 2 && subArgs[0] === 'schema' && subArgs[1] === 'detect') {
+        process.stdout.write(renderDetectSchemaJson());
+        process.exit(0);
+      }
+      if (subArgs.length === 2 && subArgs[0] === 'schema' && subArgs[1] === 'fix') {
+        process.stdout.write(renderFixSchemaJson());
+        process.exit(0);
+      }
+      getLogger().error({}, '`--json` is only valid with `regent llm schema detect` or `regent llm schema fix`');
+      process.exit(2);
+      return;
+    }
     const result = routeLlm(subArgs);
     if (result.kind === 'ok') {
       process.stdout.write(result.content);
@@ -353,6 +389,15 @@ async function runCheck(options: CheckOptions): Promise<number> {
   let output = '';
   if (format === 'sarif') {
     output = renderSarif(findings, result.rules, { cwd });
+  } else if (format === 'json') {
+    // The JSON reporter carries the runner's `scannedFiles` count on
+    // the top-level document; build a fresh RunResult so the
+    // display-filtered findings + the scan stats line up. The JSON
+    // shape mirrors `src/types.ts:RunResult`.
+    output = renderJsonFromRun(
+      { findings, rules: result.rules, scannedFiles: result.scannedFiles },
+      { cwd },
+    );
   } else if (format === 'both') {
     output = renderText(findings, { cwd, useColor, hideReview });
     output += '\n--- SARIF ---\n';
@@ -756,6 +801,58 @@ regent is a multi-mode static analysis framework. Three rule kinds:
   process.stdout.write(`✓ created ${auditDir}/\n`);
   process.stdout.write(`  regent ships zero rules. Browse curated examples with \`regent llm examples <lang>\` or copy via \`regent example copy <lang> <rule-id>\`.\n`);
   process.stdout.write(`  Next: see ${auditDir}/AGENT.md for an agent's-eye view.\n`);
+}
+
+async function runConfig(subcommand: string, field: string): Promise<number> {
+  const cwd = process.cwd();
+  let result;
+  try {
+    result = await loadConfig({ cwd });
+  } catch (err) {
+    getLogger().error({ err: { message: (err as Error).message } }, 'config load failed');
+    return 1;
+  }
+
+  if (subcommand === '' || subcommand === 'help') {
+    process.stdout.write('regent config <subcommand>\n');
+    process.stdout.write('\n');
+    process.stdout.write('Subcommands:\n');
+    process.stdout.write('  show <field>    Merged value + per-layer origin for <field> (e.g. cache.enabled)\n');
+    process.stdout.write('  diff            Fields where any non-default layer overrode the default\n');
+    process.stdout.write('  layers          All 5 (or 6, including defaults) layers in precedence order\n');
+    return 0;
+  }
+
+  if (subcommand === 'layers') {
+    process.stdout.write(formatLayers(result.layers));
+    return 0;
+  }
+
+  if (subcommand === 'diff') {
+    process.stdout.write(formatDiff(diffFromDefaults(result)));
+    return 0;
+  }
+
+  if (subcommand === 'show') {
+    if (!field) {
+      getLogger().error({}, 'config show requires a <field> argument, e.g. `regent config show cache.enabled`');
+      return 2;
+    }
+    const show = showField(result, field);
+    if ('error' in show) {
+      if (show.error === 'empty-path') {
+        getLogger().error({}, 'config show requires a <field> argument, e.g. `regent config show cache.enabled`');
+        return 2;
+      }
+      getLogger().error({ field: show.path }, 'config path not found — try `regent config show rules.detect` or `regent config layers`');
+      return 1;
+    }
+    process.stdout.write(formatShow(show));
+    return 0;
+  }
+
+  getLogger().error({ subcommand }, 'unknown config subcommand — try `show <field>`, `diff`, or `layers`');
+  return 2;
 }
 
 async function runMigrate(): Promise<number> {
