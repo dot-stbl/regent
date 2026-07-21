@@ -38,6 +38,7 @@ import { loadRules } from './loader.js';
 import { runRules } from './runner.js';
 import { renderText, renderSummary } from './reporter/text.js';
 import { renderSarif } from './reporter/sarif.js';
+import { renderJsonFromRun } from './reporter/json.js';
 import { renderReview, renderReviewJson } from './reporter/review.js';
 import type { AcceptEntry, Finding, RunnerScope, Severity } from './types.js';
 import { renderBanner } from './cli/banner.js';
@@ -347,6 +348,15 @@ async function runCheck(options: CheckOptions): Promise<number> {
   let output = '';
   if (format === 'sarif') {
     output = renderSarif(findings, result.rules, { cwd });
+  } else if (format === 'json') {
+    // The JSON reporter carries the runner's `scannedFiles` count on
+    // the top-level document; build a fresh RunResult so the
+    // display-filtered findings + the scan stats line up. The JSON
+    // shape mirrors `src/types.ts:RunResult`.
+    output = renderJsonFromRun(
+      { findings, rules: result.rules, scannedFiles: result.scannedFiles },
+      { cwd },
+    );
   } else if (format === 'both') {
     output = renderText(findings, { cwd, useColor, hideReview });
     output += '\n--- SARIF ---\n';
