@@ -85,11 +85,28 @@ export interface RunOptions {
   readonly astRules?: readonly CompiledAstRule[];
 }
 
-export async function runRules(
+/**
+ * A single event from `runRulesStream`: a finding as soon as it's discovered,
+ * periodic progress, then a terminal `done`. Enables live output (print
+ * findings + a progress indicator as scanning proceeds) instead of waiting for
+ * the whole scan to finish.
+ */
+export type ScanEvent =
+  | { readonly type: 'finding'; readonly finding: Finding }
+  | { readonly type: 'progress'; readonly processed: number; readonly total: number }
+  | { readonly type: 'done'; readonly scannedFiles: number };
+
+/**
+ * Streaming runner — yields each finding as soon as its file is scanned, plus
+ * progress events, then `done`. Files are scanned by a bounded concurrent pool;
+ * events arrive in file-completion order (not input order). `runRules` is a
+ * thin collect-all wrapper over this.
+ */
+export async function* runRulesStream(
   rules: readonly CompiledRule[],
   scope: RunnerScope,
   options: RunOptions = {},
-): Promise<RunResult> {
+): AsyncGenerator<ScanEvent> {
   const contextBuffer = options.contextBuffer ?? DEFAULT_CONTEXT_BUFFER;
   const files = await collectFiles(scope);
   const compiled = await Promise.all(
@@ -116,30 +133,73 @@ export async function runRules(
     }),
   );
 
-  const findings: Finding[] = [];
-  let scannedFiles = 0;
   const acceptList = options.acceptList ?? [];
-
   const concurrency = Math.max(1, options.concurrency ?? DEFAULT_CONCURRENCY);
   const astRules = options.astRules ?? [];
-  const scanResults = await runWithConcurrency(
+
+  let processed = 0;
+  let scannedFiles = 0;
+  for await (const r of mapConcurrent(
     files,
     concurrency,
     (file) => scanFile(file, compiled, astRules, acceptList, contextBuffer),
-  );
-  for (const r of scanResults) {
-    if (r === null) {
-      continue;
+  )) {
+    processed++;
+    if (r !== null) {
+      scannedFiles++;
+      for (const finding of r.findings) {
+        yield { type: 'finding', finding };
+      }
     }
-    scannedFiles++;
-    findings.push(...r.findings);
+    yield { type: 'progress', processed, total: files.length };
   }
+  yield { type: 'done', scannedFiles };
+}
 
-  return {
-    findings,
-    rules,
-    scannedFiles,
+export async function runRules(
+  rules: readonly CompiledRule[],
+  scope: RunnerScope,
+  options: RunOptions = {},
+): Promise<RunResult> {
+  const findings: Finding[] = [];
+  let scannedFiles = 0;
+  for await (const ev of runRulesStream(rules, scope, options)) {
+    if (ev.type === 'finding') {
+      findings.push(ev.finding);
+    } else if (ev.type === 'done') {
+      scannedFiles = ev.scannedFiles;
+    }
+  }
+  return { findings, rules, scannedFiles };
+}
+
+/**
+ * Map `items` through `fn` with at most `limit` in flight, yielding each result
+ * as its task completes (completion order, not input order).
+ */
+async function* mapConcurrent<T, R>(
+  items: readonly T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>,
+): AsyncGenerator<R> {
+  const inFlight = new Map<number, Promise<{ key: number; value: R }>>();
+  let next = 0;
+  const start = (): void => {
+    if (next >= items.length) {
+      return;
+    }
+    const key = next++;
+    inFlight.set(key, fn(items[key]!, key).then((value) => ({ key, value })));
   };
+  for (let k = 0; k < Math.min(Math.max(1, limit), items.length); k++) {
+    start();
+  }
+  while (inFlight.size > 0) {
+    const { key, value } = await Promise.race(inFlight.values());
+    inFlight.delete(key);
+    start();
+    yield value;
+  }
 }
 
 /**

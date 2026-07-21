@@ -35,13 +35,14 @@ import { Command } from 'commander';
 import pc from 'picocolors';
 
 import { loadRules } from './loader.js';
-import { runRules } from './runner.js';
+import { runRules, runRulesStream } from './runner.js';
 import { BUNDLES } from './bundles/index.js';
-import { renderText, renderSummary } from './reporter/text.js';
+import { renderText, renderSummary, renderFinding } from './reporter/text.js';
 import { renderSarif } from './reporter/sarif.js';
 import { renderJsonFromRun } from './reporter/json.js';
 import { renderReview, renderReviewJson } from './reporter/review.js';
-import type { AcceptEntry, Finding, RunnerScope, Severity } from './types.js';
+import type { AcceptEntry, CompiledRule, Finding, RunnerScope, Severity } from './types.js';
+import type { CompiledAstRule } from './kinds/ast.js';
 import { renderBanner } from './cli/banner.js';
 import { loadLlmText } from './llm.js';
 import { routeLlm } from './llm-router.js';
@@ -107,6 +108,7 @@ program
   .option('--severity <level>', 'override minimum severity in output')
   .option('--no-color', 'disable ANSI color output')
   .option('--no-review', 'hide the review-candidates section')
+  .option('--stream', 'stream findings live as they are found (text format) + progress indicator')
   .option(
     '--concurrency <n>',
     'max in-flight file scans (overrides runner.concurrency / STBL_REGENT_RUNNER_CONCURRENCY)',
@@ -397,10 +399,28 @@ async function runCheck(options: CheckOptions): Promise<number> {
     diffBase: options.diffBase as string,
   };
 
+  const contextBuffer = loadedRules.resolvedConfig.output.contextBuffer;
+  const concurrency = loadedRules.resolvedConfig.runner.concurrency;
+
+  // Streaming path (text only): print findings live + a progress indicator.
+  if (options.stream && ((options.format as string | undefined) ?? 'text') === 'text') {
+    return runCheckStream(rules, astRules, scope, {
+      acceptList: loadedRules.acceptList,
+      contextBuffer,
+      concurrency,
+    }, {
+      cwd,
+      useColor,
+      hideReview,
+      severity: options.severity as Severity | undefined,
+      exitOn: (options.exitOn as Severity) ?? 'error',
+    });
+  }
+
   const result = await runRules(rules, scope, {
     acceptList: loadedRules.acceptList,
-    contextBuffer: loadedRules.resolvedConfig.output.contextBuffer,
-    concurrency: loadedRules.resolvedConfig.runner.concurrency,
+    contextBuffer,
+    concurrency,
     astRules,
   });
   let findings = result.findings;
@@ -447,6 +467,63 @@ async function runCheck(options: CheckOptions): Promise<number> {
   // the display-filtered `findings` — `--severity` / `--no-review` change
   // what is printed, never the exit code.
   return computeExitCode(result.findings, (options.exitOn as Severity) ?? 'error');
+}
+
+/**
+ * Streaming `check`: consume `runRulesStream`, print each finding live to
+ * stdout as it arrives, show a spinner + counter on stderr (TTY only), then a
+ * summary. Exit code is computed on the full finding set, like `runCheck`.
+ */
+async function runCheckStream(
+  rules: readonly CompiledRule[],
+  astRules: readonly CompiledAstRule[],
+  scope: RunnerScope,
+  runOptions: { acceptList: readonly AcceptEntry[]; contextBuffer: number; concurrency: number },
+  display: {
+    cwd: string;
+    useColor: boolean;
+    hideReview: boolean;
+    severity: Severity | undefined;
+    exitOn: Severity;
+  },
+): Promise<number> {
+  const { cwd, useColor, hideReview, severity, exitOn } = display;
+  const all: Finding[] = [];
+  const frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+  const minSeverity = severity ? severityRank(severity) : null;
+  const isTty = process.stderr.isTTY === true;
+  const clearLine = (): void => {
+    if (isTty) {
+      process.stderr.write('\r\x1b[K');
+    }
+  };
+  let shown = 0;
+
+  for await (const ev of runRulesStream(rules, scope, { ...runOptions, astRules })) {
+    if (ev.type === 'finding') {
+      all.push(ev.finding);
+      if (hideReview && ev.finding.status === 'pending') {
+        continue;
+      }
+      if (minSeverity !== null && severityRank(ev.finding.severity) < minSeverity) {
+        continue;
+      }
+      clearLine();
+      process.stdout.write(renderFinding(ev.finding, { cwd, useColor }));
+      shown++;
+    } else if (ev.type === 'progress' && isTty) {
+      process.stderr.write(
+        `\r${frames[ev.processed % frames.length]} scanning ${ev.processed}/${ev.total} · ${shown} shown`,
+      );
+    }
+  }
+
+  clearLine();
+  if (shown === 0) {
+    process.stdout.write(`${useColor ? pc.green('✓') : '✓'} no findings\n`);
+  }
+  process.stdout.write(`\n${renderSummary(all, rules, useColor)}`);
+  return computeExitCode(all, exitOn);
 }
 
 /**
@@ -1042,6 +1119,7 @@ interface CheckOptions {
   color?: boolean;
   review?: boolean;
   concurrency?: number;
+  stream?: boolean;
 }
 
 interface ReviewOptions {

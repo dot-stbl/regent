@@ -18,8 +18,8 @@
 export { defineRule, defineConfig } from './define-rule.js';
 export { defineDetectRule, defineFixRule, defineAstRule } from './kinds/index.js';
 export { loadRules, type LoaderOptions, type LoaderRuleSet, type LoadedAcceptEntry } from './loader.js';
-export { runRules, severityAtOrAbove, relativePath } from './runner.js';
-export { renderText, renderSummary } from './reporter/text.js';
+export { runRules, runRulesStream, severityAtOrAbove, relativePath, type ScanEvent } from './runner.js';
+export { renderText, renderSummary, renderFinding } from './reporter/text.js';
 export { renderSarif } from './reporter/sarif.js';
 export { renderReview, renderReviewJson } from './reporter/review.js';
 export { compileRegex, scanFirst, locationAt, extractContext } from './regex.js';

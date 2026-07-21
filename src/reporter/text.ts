@@ -90,6 +90,17 @@ export function renderText(
   return lines.join('\n').replace(/^\n+/, '') + '\n';
 }
 
+/**
+ * Render a single finding as a standalone block (header + context + message),
+ * for streaming / live output. Same styling as the grouped `renderText`.
+ */
+export function renderFinding(finding: Finding, options: RenderTextOptions): string {
+  const c = options.useColor ? pc : createDulledColorPalette();
+  const rel = toForwardSlash(relative(options.cwd, finding.path));
+  const stage = finding.status === 'pending' ? 'review' : 'violation';
+  return `${formatFinding(finding, rel, stage, c)}\n`;
+}
+
 function renderSectionTitle(label: string, c: typeof pc): string {
   const bar = '─'.repeat(label.length + 4);
   return `${c.dim(bar)}\n  ${c.bold(label)}\n${c.dim(bar)}`;
