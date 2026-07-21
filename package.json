@@ -1,6 +1,6 @@
 {
   "name": "@dot-stbl/regent",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Multi-mode static analysis framework for LLM agents — regex + AST rules over bundled language grammars (C#, TypeScript, Rust, Go)",
   "license": "MIT",
   "type": "module",

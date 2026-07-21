@@ -75,7 +75,7 @@ export interface CacheStats {
   readonly sizeBytes: number;
 }
 
-const RUNNER_VERSION = '0.2.0';
+const RUNNER_VERSION = '0.3.0';
 
 // Re-export the header values so tests can construct a valid
 // on-disk cache file (see `test/cache-ttl.test.ts`).
