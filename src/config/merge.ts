@@ -37,6 +37,7 @@ export function mergeConfigs(layers: readonly RegentConfig[]): RegentConfig {
 
   const detectById = new Map<string, DetectRuleSpec>();
   const fixById = new Map<string, FixRuleSpec>();
+  const astById = new Map<string, RegentConfig['rules']['ast'][number]>();
 
   const extendsList: Array<string | readonly unknown[]> = [];
   const disableSet = new Set<string>();
@@ -82,6 +83,10 @@ export function mergeConfigs(layers: readonly RegentConfig[]): RegentConfig {
     // rules.fix — last-wins by id
     for (const r of layer.rules.fix) {
       fixById.set(r.id, r);
+    }
+    // rules.ast — last-wins by id
+    for (const r of layer.rules.ast) {
+      astById.set(r.id, r);
     }
 
     // rules.extends — concatenate (order preserved; later wins for
@@ -172,6 +177,7 @@ export function mergeConfigs(layers: readonly RegentConfig[]): RegentConfig {
     rules: {
       detect: [...detectById.values()],
       fix: [...fixById.values()],
+      ast: [...astById.values()],
       extends: extendsList,
       disable: [...disableSet],
       override: Object.fromEntries(overrideMap) as Record<string, { severity?: 'error' | 'warning' | 'suggestion'; message?: string }>,

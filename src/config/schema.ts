@@ -90,6 +90,22 @@ const FixRuleSpecSchema = z
   })
   .strict();
 
+const AstRuleSpecSchema = z
+  .object({
+    id: z.string().min(1),
+    language: z.string().min(1),
+    severity: SeveritySchema,
+    globs: GlobListSchema,
+    excludePaths: GlobListSchema.optional(),
+    message: z.string().min(1),
+    source: z.string().optional(),
+    rationale: z.string().optional(),
+    // ast-grep matcher config (rule + optional constraints). Validated
+    // loosely here — ast-grep validates the rule internals at scan time.
+    ast: z.object({ rule: z.record(z.string(), z.unknown()) }).passthrough(),
+  })
+  .strict();
+
 /**
  * Named exclude-group dictionary. Keys are bare names (no `@` prefix).
  * Values are glob arrays. Validated against duplicate / reserved names.
@@ -121,6 +137,7 @@ const RulesSectionSchema = z
   .object({
     detect: z.array(DetectRuleSpecSchema).readonly().default([]),
     fix: z.array(FixRuleSpecSchema).readonly().default([]),
+    ast: z.array(AstRuleSpecSchema).readonly().default([]),
     // `extends` accepts paths, globs, or arrays of inline rules.
     // Resolution semantics are unchanged from v0.1; the schema just
     // surfaces the union type.
@@ -136,6 +153,7 @@ const RulesSectionSchema = z
   .default({
     detect: [],
     fix: [],
+    ast: [],
     extends: [],
     disable: [],
     override: {},
@@ -200,6 +218,7 @@ export const RegentConfigSchema = z
     rules: {
       detect: [],
       fix: [],
+      ast: [],
       extends: [],
       disable: [],
       override: {},
