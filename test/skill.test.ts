@@ -1,6 +1,7 @@
 /**
- * L0: the bundled Claude Code skill exists, ships, and carries the advisor
- * decision framework (prefer native tools; regent for house-rules; one entry).
+ * L0: the bundled agent skill (Claude Code / opencode / any Agent-Skills tool)
+ * exists, ships, is portable, and carries the advisor decision framework
+ * (prefer native tools; regent for house-rules; one entry point).
  */
 
 import { describe, expect, it } from 'vitest';
@@ -24,5 +25,12 @@ describe('regent skill', () => {
     expect(SKILL).toMatch(/native tool > regent/i);
     expect(SKILL).toMatch(/single entry point/i);
     expect(SKILL).toMatch(/deprecated/i); // regex kind marked deprecated
+  });
+
+  it('is portable across agents (opencode-compatible name + install docs)', () => {
+    // opencode requires name to match ^[a-z0-9]+(-[a-z0-9]+)*$
+    expect(SKILL).toMatch(/\nname: [a-z0-9]+(-[a-z0-9]+)*\n/);
+    expect(SKILL).toMatch(/opencode/i);
+    expect(SKILL).toMatch(/~\/\.agents\/skills/);
   });
 });
