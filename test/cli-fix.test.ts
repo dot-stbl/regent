@@ -91,6 +91,31 @@ function safeReplaceConfig(ruleId: string, pattern: string, replacement: string)
 };`;
 }
 
+function functionFixConfig(ruleId: string): string {
+  return `export default {
+  rules: {
+    detect: [
+      {
+        id: ${JSON.stringify(ruleId)},
+        severity: 'error',
+        pattern: 'TARGET',
+        globs: ['**/*.txt'],
+        message: 'function fix',
+        fix: {
+          kind: 'function',
+          safety: 'safe',
+          title: ${JSON.stringify(ruleId)},
+          apply: ({ content }) => {
+            const start = content.indexOf('TARGET');
+            return start === -1 ? null : [{ start, end: start + 6, replacement: 'FUNCTION' }];
+          },
+        },
+      },
+    ],
+  },
+};`;
+}
+
 /** Two rules firing on overlapping byte ranges on the same file
  *  content. Their match spans intersect → the engine defers the
  *  later-registered edit with reason='overlap'. */
@@ -229,7 +254,35 @@ describe('regent fix CLI', () => {
     const json = JSON.parse(r.stdout);
     expect(json.applied).toHaveLength(1);
     expect(json.suggested).toEqual([]);
+    expect(r.stderr).toContain('warning: --all is deprecated, use --unsafe');
     expect(readFileSync(file, 'utf8')).toBe('hello X world\n');
+  });
+
+  it('--unsafe enables function-form fixes and prints the safety note', async () => {
+    writeConfig(functionFixConfig('cli-fix.function-unsafe'));
+    const file = join(cwd, 'a.txt');
+    writeFileSync(file, 'hello TARGET world\n', 'utf8');
+
+    const result = await runCli(['fix', '--unsafe', '--yes', '--format', 'json'], cwd);
+
+    expect(result.code).toBe(0);
+    expect(result.stderr).toContain(
+      'note: --unsafe enables function-form fixes; review the diff before committing',
+    );
+    expect(JSON.parse(result.stdout).applied).toHaveLength(1);
+    expect(readFileSync(file, 'utf8')).toBe('hello FUNCTION world\n');
+  });
+
+  it('--all remains a deprecated alias that applies function-form fixes', async () => {
+    writeConfig(functionFixConfig('cli-fix.function-all'));
+    const file = join(cwd, 'a.txt');
+    writeFileSync(file, 'TARGET\n', 'utf8');
+
+    const result = await runCli(['fix', '--all', '--yes'], cwd);
+
+    expect(result.code).toBe(0);
+    expect(result.stderr).toContain('warning: --all is deprecated, use --unsafe');
+    expect(readFileSync(file, 'utf8')).toBe('FUNCTION\n');
   });
 
   it('4. --rule <id> restricts to one rule', async () => {

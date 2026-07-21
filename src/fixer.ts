@@ -7,12 +7,11 @@
  * a higher-priority edit are deferred (returned, not applied) per
  * the design in #7 §7.
  *
- * MVP scope (P2):
- * - `replace` (template-driven) and `delete-line` only. `function`
- *   and `guidance-only` are surfaced via the `suggested` array
- *   instead of being applied.
- * - Per-rule `apply: replace` and `delete-line` only, no template
- *   function-form yet (P7).
+ * Current fix lanes:
+ * - `replace` and `delete-line` apply in the safe lane when declared safe.
+ * - `function` fixes are suggested by default and apply only in the all
+ *   lane selected by `regent fix --unsafe`.
+ * - `guidance-only` fixes are always suggested and never applied.
  * - Right-to-left application: edits sorted by `start` ascending,
  *   applied from highest offset downward so earlier offsets stay
  *   valid.
@@ -533,8 +532,10 @@ async function applyOnePass(
 
     // Build per-finding edits. Each finding has its own rule, so we
     // look up `rule` + `fileFix` per finding rather than once per file.
-    // Function / guidance-only are deferred to the `suggested` array.
+    // Function fixes run once per rule and file because their context
+    // contains the whole file and may return multiple edits.
     const edits: { edit: RuleFixEdit; ruleId: string; title: string }[] = [];
+    const processedFunctionRules = new Set<string>();
     for (const f of fileFindings) {
       const rule = rulesById.get(f.ruleId);
       const fileFix = rule?.fix;
@@ -572,28 +573,35 @@ async function applyOnePass(
         // safety === 'suggested' && lane === 'all' falls through; apply.
         edits.push({ edit, ruleId: f.ruleId, title: fileFix.title });
       } else {
-        // function / guidance-only: surface as suggested.
         if (fileFix.kind === 'function') {
+          if (processedFunctionRules.has(f.ruleId)) {
+            continue;
+          }
+          processedFunctionRules.add(f.ruleId);
           const fnFix = fileFix as RuleFixFunction;
-          const suggestedEdits = tryRunFunction(fnFix, absPath, content);
-          if (suggestedEdits !== null) {
-            for (const se of suggestedEdits) {
+          const functionEdits = tryRunFunction(fnFix, f.ruleId, absPath, content);
+          if (functionEdits === null) {
+            continue;
+          }
+          for (const functionEdit of functionEdits) {
+            if (lane === 'all') {
+              edits.push({ edit: functionEdit, ruleId: f.ruleId, title: fnFix.title });
+            } else {
               suggested.push({
                 ruleId: f.ruleId,
                 file: relPath,
-                range: { start: se.start, end: se.end },
+                range: { start: functionEdit.start, end: functionEdit.end },
                 title: fnFix.title,
                 guidance: fnFix.guidance,
                 proposedEdit: {
-                  start: se.start,
-                  end: se.end,
-                  replacement: se.replacement,
+                  start: functionEdit.start,
+                  end: functionEdit.end,
+                  replacement: functionEdit.replacement,
                 },
               });
             }
           }
         } else {
-          // guidance-only
           suggested.push({
             ruleId: f.ruleId,
             file: relPath,
@@ -866,6 +874,7 @@ export async function applyFixes(
  */
 function tryRunFunction(
   fix: RuleFixFunction,
+  ruleId: string,
   filePath: string,
   content: string,
 ): readonly RuleFixEdit[] | null {
@@ -873,6 +882,7 @@ function tryRunFunction(
     const ctx: RuleFixContext = { filePath, content };
     return fix.apply(ctx);
   } catch {
+    process.stderr.write(`warning: function fix ${ruleId} threw; edits dropped\n`);
     return null;
   }
 }

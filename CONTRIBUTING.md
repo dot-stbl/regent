@@ -79,6 +79,17 @@ The shipped-example fixture test (`test/shipped-examples.test.ts`)
 auto-discovers fixture pairs under `examples/<lang>/__fixtures__/`,
 so adding a new rule with fixtures requires zero test code.
 
+## Function-form fix contract
+
+Function-form fixes MUST be pure and deterministic. They must not perform I/O,
+read time, randomness, or clocks, or mutate global state. Returning `null`
+declines the fix, while returning an empty array `[]` is a valid result with no
+edits to apply. If a function throws, the engine catches the exception, logs a
+warning, continues the run, and drops that function's edits.
+
+This contract lets the engine run its fixpoint loop deterministically and makes
+CI-applied diffs reproducible for users reviewing the same input and rule set.
+
 ## Pattern authoring
 
 RE2 syntax differs from JS regex:

@@ -22,6 +22,7 @@ import { runRules } from '../src/runner.js';
 // regent — these are public-facing samples an LLM agent can copy via
 // `regent example copy csharp <rule-id>`). Used here as test fixtures.
 import throwVarRule from '../examples/csharp/csharp.exceptions.throw-variable.lint.js';
+import braceStyleRule from '../examples/csharp/csharp.exceptions.brace-style.lint.js';
 import resultBlockingRule
   from '../examples/csharp/csharp.async.result-blocking.lint.js';
 import getAwaiterBlockingRule
@@ -200,6 +201,17 @@ async function expectRuleOnFixture(
   }
   return { passed: true, badFindings, goodFindings };
 }
+
+describe('csharp.exceptions.brace-style', () => {
+  it('flags a trailing closing brace; ignores braces on their own lines', async () => {
+    const result = await expectRuleOnFixture(
+      braceStyleRule,
+      'csharp.exceptions.brace-style',
+      'csharp.exceptions.brace-style',
+    );
+    expect(result.passed, result.reason).toBe(true);
+  });
+});
 
 describe('csharp.exceptions.throw-variable', () => {
   it('flags throw ex; in catch; ignores throw new ...', async () => {

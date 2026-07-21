@@ -25,7 +25,7 @@
  *   in the fixpoint re-scan — single-pass semantics.
  */
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -277,6 +277,123 @@ describe('applyFixes', () => {
 
     const result = await applyFixes([finding], rulesById, { cwd, lane: 'all' });
     expect(result.applied).toHaveLength(1);
+  });
+
+  it('never applies guidance-only fixes in the all lane', async () => {
+    const file = writeFile('a.txt', 'hello');
+    const rule: RuleSpec = {
+      id: 'test.guidance',
+      severity: 'warning',
+      pattern: 'hello',
+      globs: ['**/*'],
+      message: 'guidance',
+      fix: {
+        kind: 'guidance-only',
+        safety: 'suggested',
+        title: 'manual guidance',
+        guidance: 'rewrite this manually',
+      },
+    };
+    const finding = makeFinding(rule.id, file, 0, 0, 5);
+
+    const result = await applyFixes([finding], new Map([[rule.id, rule]]), {
+      cwd,
+      lane: 'all',
+    });
+
+    expect(result.applied).toHaveLength(0);
+    expect(result.suggested).toHaveLength(1);
+    expect(result.suggested[0]!.proposedEdit).toBeNull();
+    expect(readFileSync(file, 'utf8')).toBe('hello');
+  });
+
+  it('catches a throwing function fix and drops its edits', async () => {
+    const file = writeFile('a.txt', 'hello');
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const rule: RuleSpec = {
+      id: 'test.throwing-function',
+      severity: 'warning',
+      pattern: 'hello',
+      globs: ['**/*'],
+      message: 'throwing function',
+      fix: {
+        kind: 'function',
+        safety: 'safe',
+        title: 'throwing function',
+        apply: () => {
+          throw new Error('buggy fix');
+        },
+      },
+    };
+    const finding = makeFinding(rule.id, file, 0, 0, 5);
+
+    const result = await applyFixes([finding], new Map([[rule.id, rule]]), {
+      cwd,
+      lane: 'all',
+    });
+
+    expect(result.applied).toHaveLength(0);
+    expect(result.suggested).toHaveLength(0);
+    expect(readFileSync(file, 'utf8')).toBe('hello');
+    expect(stderr).toHaveBeenCalledWith(
+      'warning: function fix test.throwing-function threw; edits dropped\n',
+    );
+    stderr.mockRestore();
+  });
+
+  it('defers overlapping function edits so the first-registered rule wins', async () => {
+    const file = writeFile('a.txt', 'hello world');
+    const contexts: Array<{ filePath: string; content: string }> = [];
+    const first: RuleSpec = {
+      id: 'test.function-first',
+      severity: 'warning',
+      pattern: 'hello',
+      globs: ['**/*'],
+      message: 'first',
+      fix: {
+        kind: 'function',
+        safety: 'safe',
+        title: 'first',
+        apply: (context) => {
+          contexts.push(context);
+          return [{ start: 0, end: 5, replacement: 'HELLO' }];
+        },
+      },
+    };
+    const second: RuleSpec = {
+      id: 'test.function-second',
+      severity: 'warning',
+      pattern: 'ello',
+      globs: ['**/*'],
+      message: 'second',
+      fix: {
+        kind: 'function',
+        safety: 'safe',
+        title: 'second',
+        apply: () => [{ start: 1, end: 6, replacement: 'ELLO!' }],
+      },
+    };
+    const findings = [
+      makeFinding(first.id, file, 0, 0, 5),
+      makeFinding(second.id, file, 0, 1, 5),
+    ];
+
+    const result = await applyFixes(
+      findings,
+      new Map([[first.id, first], [second.id, second]]),
+      { cwd, lane: 'all' },
+    );
+
+    expect(contexts).toEqual([{ filePath: file, content: 'hello world' }]);
+    expect(result.applied).toHaveLength(1);
+    expect(result.applied[0]!.ruleId).toBe(first.id);
+    expect(result.deferred).toHaveLength(1);
+    expect(result.deferred[0]).toMatchObject({
+      ruleId: second.id,
+      reason: 'overlap',
+      winningRuleId: first.id,
+    });
+    expect(readFileSync(file, 'utf8')).toBe('HELLO world');
   });
 });
 
