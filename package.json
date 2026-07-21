@@ -19,6 +19,7 @@
     "dist",
     "assets/llm",
     "examples",
+    "skills",
     "LICENSE",
     "README.md"
   ],
