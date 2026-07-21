@@ -35,6 +35,15 @@ export interface CacheKey {
   readonly fileHash: string;
   readonly ruleHash: string;
   readonly ruleKind: 'detect' | 'fix';
+  /**
+   * Optional `ruleId` (e.g. `csharp.no-region`) — used by
+   * `DiskCache` to build a reverse index so `invalidate({ ruleId })`
+   * can drop all cached findings for that rule without scanning
+   * every entry. Not part of the on-disk composite key (which
+   * uses `fileHash|ruleHash|ruleKind`); safe to omit when callers
+   * only need the lookup half of the cache.
+   */
+  readonly ruleId?: string;
 }
 
 export interface CacheEntry {
@@ -42,6 +51,13 @@ export interface CacheEntry {
   readonly fixedContent?: string;
   readonly durationMs: number;
   readonly writtenAt: number;
+  /**
+   * Optional `ruleId` (e.g. `csharp.no-region`) — used by
+   * `DiskCache.invalidate({ ruleId })` to drop every cached finding
+   * for a rule without scanning every entry's stored value. Persisted
+   * with the entry so the reverse index is rebuilt on `load()`.
+   */
+  readonly ruleId?: string;
 }
 
 export interface CacheStore {
@@ -82,6 +98,14 @@ export class DiskCache implements CacheStore {
   private readonly maxAge: number;
   private readonly enabled: boolean;
   private store = new Map<string, CacheEntry>();
+  /**
+   * Reverse index from `ruleId` to the set of `ruleHash` values we've
+   * written for that rule. Populated on every `set()` (and during
+   * `load()` for existing entries) so `invalidate({ ruleId })` can
+   * drop everything we've ever cached for that id without scanning
+   * every entry's stored value.
+   */
+  private ruleHashesByRuleId = new Map<string, Set<string>>();
   private header: CacheHeader = {
     schemaVersion: SCHEMA_VERSION,
     runnerVersion: RUNNER_VERSION,
@@ -123,7 +147,16 @@ export class DiskCache implements CacheStore {
       return;
     }
     const composite = `${key.fileHash}|${key.ruleHash}|${key.ruleKind}`;
-    this.store.set(composite, entry);
+    // If the caller supplies a `ruleId` on the key but not on the
+    // entry, copy it through so the on-disk format carries it
+    // (needed for invalidate-by-ruleId across restarts). When the
+    // entry already has a `ruleId`, that one wins — the key's value
+    // is treated as a hint, not an override.
+    const entryWithRuleId: CacheEntry = entry.ruleId === undefined && key.ruleId !== undefined
+      ? { ...entry, ruleId: key.ruleId }
+      : entry;
+    this.store.set(composite, entryWithRuleId);
+    this.indexRule(key);
     this.writes++;
     this.enforceCap();
     this.flush();
@@ -138,9 +171,29 @@ export class DiskCache implements CacheStore {
         }
       }
     }
-    // Note: invalidate by ruleId would require scanning values; for
-    // v0.2 we use the cheaper rule-version hash via invalidate-all on
-    // rule spec change.
+    if (scope.ruleId !== undefined) {
+      const hashes = this.ruleHashesByRuleId.get(scope.ruleId);
+      if (hashes && hashes.size > 0) {
+        for (const ruleHash of hashes) {
+          // Match the middle segment of the composite key. There are
+          // only two `ruleKind` values (`detect` / `fix`); iterate
+          // them rather than parsing the key, so the composite
+          // format stays free to evolve.
+          for (const ruleKind of ['detect', 'fix'] as const) {
+            const composite = `|${ruleHash}|${ruleKind}`;
+            for (const key of this.store.keys()) {
+              if (key.endsWith(composite)) {
+                this.store.delete(key);
+              }
+            }
+          }
+        }
+        // Drop the reverse-index entry once we've cleared all
+        // hashes — the rule is no longer represented in the store.
+        this.ruleHashesByRuleId.delete(scope.ruleId);
+      }
+    }
+    this.flush();
   }
 
   stats(): CacheStats {
@@ -203,9 +256,58 @@ export class DiskCache implements CacheStore {
           next.set(key, entry);
         }
         this.store = next;
+        // Rebuild the reverse ruleId → ruleHash index from loaded
+        // entries so invalidate({ ruleId }) works across restarts.
+        this.rebuildIndexFromStore();
       }
     } catch {
       // Corrupted cache — start fresh; next flush overwrites.
+    }
+  }
+
+  /**
+   * Add a `ruleId → ruleHash` mapping for a freshly-written entry.
+   * No-op when the key has no `ruleId` (the reverse index is then
+   * blind to the entry; invalidate({ ruleId }) won't see it).
+   */
+  private indexRule(key: CacheKey): void {
+    if (key.ruleId === undefined) {
+      return;
+    }
+    let set = this.ruleHashesByRuleId.get(key.ruleId);
+    if (!set) {
+      set = new Set();
+      this.ruleHashesByRuleId.set(key.ruleId, set);
+    }
+    set.add(key.ruleHash);
+  }
+
+  /**
+   * Rebuild the reverse index from the current `store` contents.
+   * Called after a `load()` so the in-memory index survives process
+   * restarts (as long as entries have a `ruleId`).
+   */
+  private rebuildIndexFromStore(): void {
+    this.ruleHashesByRuleId.clear();
+    for (const [composite, entry] of this.store) {
+      const ruleId = entry.ruleId;
+      if (typeof ruleId !== 'string' || ruleId.length === 0) {
+        continue;
+      }
+      // Parse the ruleHash out of the composite key
+      // (`fileHash|ruleHash|ruleKind`). Three segments, so the
+      // middle one is unambiguous.
+      const parts = composite.split('|');
+      if (parts.length !== 3) {
+        continue;
+      }
+      const ruleHash = parts[1]!;
+      let set = this.ruleHashesByRuleId.get(ruleId);
+      if (!set) {
+        set = new Set();
+        this.ruleHashesByRuleId.set(ruleId, set);
+      }
+      set.add(ruleHash);
     }
   }
 
@@ -237,11 +339,13 @@ export function cacheKeyFor(
   fileContent: string,
   ruleSpec: unknown,
   kind: 'detect' | 'fix',
+  ruleId?: string,
 ): CacheKey {
   return {
     fileHash: sha256(fileContent),
     ruleHash: sha256(JSON.stringify(ruleSpec)),
     ruleKind: kind,
+    ...(ruleId !== undefined ? { ruleId } : {}),
   };
 }
 
