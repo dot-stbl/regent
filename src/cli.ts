@@ -44,6 +44,7 @@ import type { AcceptEntry, Finding, RunnerScope, Severity } from './types.js';
 import { renderBanner } from './cli/banner.js';
 import { loadLlmText } from './llm.js';
 import { routeLlm } from './llm-router.js';
+import { renderDetectSchemaJson, renderFixSchemaJson } from './llm-schema.js';
 import { createLogger, type Logger } from './logging/index.js';
 import { isLogLevel, type LogLevel } from './logging/levels.js';
 
@@ -279,8 +280,24 @@ program
   .command('llm')
   .description('Print LLM-friendly skill documentation')
   .argument('[sub...]', 'subcommand path (e.g. "authoring detect", "examples csharp")')
-  .action((sub: string[]) => {
+  .option('--json', 'emit JSON Schema instead of markdown (works for "schema detect" / "schema fix")')
+  .action((sub: string[], options) => {
     const subArgs = sub ?? [];
+    // `--json` short-circuits the markdown router for the two schema
+    // subcommands; other subcommands ignore the flag and behave as before.
+    if (options.json) {
+      if (subArgs.length === 2 && subArgs[0] === 'schema' && subArgs[1] === 'detect') {
+        process.stdout.write(renderDetectSchemaJson());
+        process.exit(0);
+      }
+      if (subArgs.length === 2 && subArgs[0] === 'schema' && subArgs[1] === 'fix') {
+        process.stdout.write(renderFixSchemaJson());
+        process.exit(0);
+      }
+      getLogger().error({}, '`--json` is only valid with `regent llm schema detect` or `regent llm schema fix`');
+      process.exit(2);
+      return;
+    }
     const result = routeLlm(subArgs);
     if (result.kind === 'ok') {
       process.stdout.write(result.content);
