@@ -17,12 +17,10 @@
   },
   "files": [
     "dist",
-    "examples",
     "assets/llm",
-    "assets/header-dark.svg",
-    "assets/header-light.svg",
-    "README.md",
-    "LICENSE"
+    "examples",
+    "LICENSE",
+    "README.md"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
