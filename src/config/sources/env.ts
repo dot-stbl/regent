@@ -9,6 +9,7 @@
 //   STBL_REGENT_CACHE_MAX_BYTES      → cache.maxBytes
 //   STBL_REGENT_OUTPUT_COLOR         → output.color
 //   STBL_REGENT_OUTPUT_CONTEXT_BUFFER → output.contextBuffer
+//   STBL_REGENT_RUNNER_CONCURRENCY   → runner.concurrency
 //
 // Bool parsing accepts: 'true' | 'false' | '1' | '0' | 'yes' | 'no'
 // (case-insensitive). Unknown values throw at read time with a clear
@@ -140,6 +141,14 @@ export function buildEnvConfig(): RegentConfig | null {
     );
   }
 
+  const runner: { concurrency?: number } = {};
+  if (readEnv(`${PREFIX}RUNNER_CONCURRENCY`)) {
+    runner.concurrency = parseInt10(
+      `${PREFIX}RUNNER_CONCURRENCY`,
+      readEnv(`${PREFIX}RUNNER_CONCURRENCY`)!,
+    );
+  }
+
   // Touch env to silence unused-var warning when none of the sub-keys
   // are present (we still want this branch to exist so future vars
   // are easy to add).
@@ -159,11 +168,13 @@ export function buildEnvConfig(): RegentConfig | null {
     cache,
     log,
     output,
+    runner,
   };
   const hasAny =
     Object.keys(cache).length > 0 ||
     Object.keys(log).length > 0 ||
-    Object.keys(output).length > 0;
+    Object.keys(output).length > 0 ||
+    Object.keys(runner).length > 0;
   if (!hasAny) {
     return null;
   }

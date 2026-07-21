@@ -12,6 +12,7 @@
 //   - `log.format`       — `text` (TTY) or `json` (CI)
 //   - `output.color`     — ANSI colour for findings
 //   - `output.contextBuffer` — lines before/after each match
+//   - `runner.concurrency` — max in-flight per-file scans (default 4)
 //
 // Strict mode: unknown keys → ZodError at load time. Fail-fast.
 //
@@ -166,6 +167,19 @@ export const RegentConfigSchema = z
       })
       .strict()
       .default({ color: true, contextBuffer: 3 }),
+    runner: z
+      .object({
+        /**
+         * Maximum number of files scanned in parallel. Each scan is
+         * CPU-bound (regex + line scan) plus one async `readFile`;
+         * the libuv threadpool defaults to 4. Override for
+         * multi-core boxes via `STBL_REGENT_RUNNER_CONCURRENCY`
+         * or `--concurrency N`.
+         */
+        concurrency: z.number().int().positive().default(4),
+      })
+      .strict()
+      .default({ concurrency: 4 }),
   })
   .strict()
   .default({
@@ -182,6 +196,7 @@ export const RegentConfigSchema = z
     cache: { enabled: true, maxBytes: 100 * 1024 * 1024 },
     log: { level: 'info', format: 'text' },
     output: { color: true, contextBuffer: 3 },
+    runner: { concurrency: 4 },
   });
 
 export type RegentConfig = z.infer<typeof RegentConfigSchema>;

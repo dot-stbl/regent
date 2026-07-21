@@ -69,6 +69,9 @@ export function mergeConfigs(layers: readonly RegentConfig[]): RegentConfig {
     color: true,
     contextBuffer: 3,
   };
+  let runner: { concurrency: number } = {
+    concurrency: 4,
+  };
 
   for (const layer of layers) {
     // rules.detect — last-wins by id
@@ -156,6 +159,7 @@ export function mergeConfigs(layers: readonly RegentConfig[]): RegentConfig {
     cache = { ...cache, ...layer.cache };
     log = { ...log, ...layer.log };
     output = { ...output, ...layer.output };
+    runner = { ...runner, ...layer.runner };
   }
 
   const excludeGroups: Record<string, readonly string[]> = {};
@@ -177,6 +181,7 @@ export function mergeConfigs(layers: readonly RegentConfig[]): RegentConfig {
     cache,
     log,
     output,
+    runner,
   };
 }
 

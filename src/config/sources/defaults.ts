@@ -21,5 +21,6 @@ export function defaultConfig(): RegentConfig {
     cache: { enabled: true, maxBytes: 100 * 1024 * 1024 },
     log: { level: 'info', format: 'text' },
     output: { color: true, contextBuffer: 3 },
+    runner: { concurrency: 4 },
   };
 }
