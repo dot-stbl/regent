@@ -17,6 +17,7 @@ function layer(partial: Partial<RegentConfig>): RegentConfig {
     rules: {
       detect: partial.rules?.detect ?? [],
       fix: partial.rules?.fix ?? [],
+      ast: partial.rules?.ast ?? [],
       extends: partial.rules?.extends ?? [],
       disable: partial.rules?.disable ?? [],
       override: partial.rules?.override ?? {},

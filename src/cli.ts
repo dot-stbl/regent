@@ -354,6 +354,16 @@ async function runCheck(options: CheckOptions): Promise<number> {
     rules = rules.filter((r) => !ids.has(r.spec.id));
   }
 
+  let astRules = loadedRules.astRules;
+  if (options.includeRules) {
+    const patterns = (options.includeRules as string).split(',').map((s) => s.trim());
+    astRules = astRules.filter((r) => patterns.some((p) => globMatch(r.spec.id, p)));
+  }
+  if (options.excludeRules) {
+    const ids = new Set((options.excludeRules as string).split(',').map((s) => s.trim()));
+    astRules = astRules.filter((r) => !ids.has(r.spec.id));
+  }
+
   const scope: RunnerScope = {
     cwd,
     includeGlobs: ['**/*'],
@@ -372,6 +382,7 @@ async function runCheck(options: CheckOptions): Promise<number> {
     acceptList: loadedRules.acceptList,
     contextBuffer: loadedRules.resolvedConfig.output.contextBuffer,
     concurrency: loadedRules.resolvedConfig.runner.concurrency,
+    astRules,
   });
   let findings = result.findings;
 

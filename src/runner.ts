@@ -38,6 +38,8 @@ import {
   extractContext,
   type RegexMatcher,
 } from './regex.js';
+import { scanAst, type AstMatch } from './ast/matcher.js';
+import type { CompiledAstRule } from './kinds/ast.js';
 import type {
   AcceptEntry,
   CompiledRule,
@@ -78,6 +80,9 @@ export interface RunOptions {
    * Clamped to a minimum of 1.
    */
   readonly concurrency?: number;
+
+  /** AST-kind rules (ast-grep), scanned per file alongside regex rules. */
+  readonly astRules?: readonly CompiledAstRule[];
 }
 
 export async function runRules(
@@ -116,10 +121,11 @@ export async function runRules(
   const acceptList = options.acceptList ?? [];
 
   const concurrency = Math.max(1, options.concurrency ?? DEFAULT_CONCURRENCY);
+  const astRules = options.astRules ?? [];
   const scanResults = await runWithConcurrency(
     files,
     concurrency,
-    (file) => scanFile(file, compiled, acceptList, contextBuffer),
+    (file) => scanFile(file, compiled, astRules, acceptList, contextBuffer),
   );
   for (const r of scanResults) {
     if (r === null) {
@@ -242,7 +248,7 @@ async function collectChangedFiles(cwd: string, baseRef: string): Promise<string
   }
 }
 
-function matchesScopePattern(spec: RuleSpec, file: string): boolean {
+function matchesScopePattern(spec: { readonly globs: readonly string[] }, file: string): boolean {
   const normalized = file.split(sep).join('/');
   return spec.globs.some((g) => globMatches(g, normalized));
 }
@@ -356,6 +362,7 @@ interface CompiledRuleWithPattern {
 async function scanFile(
   file: string,
   compiled: readonly CompiledRuleWithPattern[],
+  astRules: readonly CompiledAstRule[],
   acceptList: readonly AcceptEntry[],
   contextBuffer: number,
 ): Promise<{ findings: Finding[] } | null> {
@@ -448,6 +455,45 @@ async function scanFile(
       };
 
       findings.push(finding);
+    }
+  }
+
+  // AST-kind rules: parse the file with ast-grep and emit precise findings.
+  for (const astRule of astRules) {
+    if (!matchesScopePattern(astRule.spec, file)) {
+      continue;
+    }
+    if (matchesExcludePath(astRule.spec.excludePaths, file)) {
+      continue;
+    }
+    let astMatches: AstMatch[];
+    try {
+      astMatches = await scanAst(astRule.spec.language, content, astRule.spec.ast);
+    } catch {
+      // Missing language pack or a parse error — skip this rule rather than
+      // failing the whole run. (Missing-pack errors surface at authoring time.)
+      continue;
+    }
+    for (const am of astMatches) {
+      const startByte = (lineOffsets[am.startLine] ?? 0) + am.startColumn;
+      const endByte = (lineOffsets[am.endLine] ?? 0) + am.endColumn;
+      findings.push({
+        ruleId: astRule.spec.id,
+        severity: astRule.spec.severity,
+        path: file,
+        match: {
+          startLine: am.startLine,
+          startColumn: am.startColumn,
+          endLine: am.endLine,
+          endColumn: am.endColumn,
+          matchText: fileLines[am.startLine] ?? am.text,
+        },
+        context: extractContext(content, startByte, endByte, contextBuffer),
+        message: astRule.spec.message,
+        source: astRule.source,
+        rationale: astRule.spec.rationale,
+        status: 'violation',
+      });
     }
   }
 

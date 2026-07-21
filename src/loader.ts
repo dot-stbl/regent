@@ -24,6 +24,7 @@ import { pathToFileURL } from 'node:url';
 
 import { loadConfig, type CliArgs, type ResolvedConfig } from './config/index.js';
 import type { DetectRuleSpec, FixRuleSpec } from './config/schema.js';
+import type { AstRuleSpec, CompiledAstRule } from './kinds/ast.js';
 import type {
   AcceptEntry,
   CompiledRule,
@@ -46,6 +47,8 @@ export interface LoaderOptions {
 
 export interface LoaderRuleSet {
   readonly rules: readonly CompiledRule[];
+  /** AST-kind rules (ast-grep), run by the runner alongside regex rules. */
+  readonly astRules: readonly CompiledAstRule[];
   readonly acceptList: readonly LoadedAcceptEntry[];
   readonly resolvedConfig: ResolvedConfig;
   readonly totalSourceLayers: number;
@@ -115,6 +118,37 @@ export async function loadRules(options: LoaderOptions): Promise<LoaderRuleSet> 
     }
   }
 
+  // 3b. Inline AST rules from config.rules.ast[] (the `ast` rule kind).
+  const astRules: CompiledAstRule[] = [];
+  const astSeen = new Set<string>();
+  for (const raw of config.rules.ast) {
+    const spec = raw as unknown as AstRuleSpec;
+    if (astSeen.has(spec.id) || config.rules.disable.includes(spec.id)) {
+      continue;
+    }
+    astRules.push({
+      spec,
+      source: spec.source ?? '<inline>',
+      origin: { kind: 'repo', path: cwd },
+    });
+    astSeen.add(spec.id);
+  }
+  for (const [id, ov] of Object.entries(config.rules.override)) {
+    const idx = astRules.findIndex((r) => r.spec.id === id);
+    if (idx !== -1) {
+      const existing = astRules[idx]!;
+      const o = ov as RuleOverride;
+      astRules[idx] = {
+        ...existing,
+        spec: {
+          ...existing.spec,
+          severity: o.severity ?? existing.spec.severity,
+          message: o.message ?? existing.spec.message,
+        },
+      };
+    }
+  }
+
   // 4. Extends — paths/globs/inline arrays
   for (const ext of config.rules.extends as readonly (string | readonly unknown[])[]) {
     const extended = await resolveExtendsItem(ext, cwd);
@@ -156,6 +190,7 @@ export async function loadRules(options: LoaderOptions): Promise<LoaderRuleSet> 
 
   return {
     rules: allRules,
+    astRules,
     acceptList,
     resolvedConfig: config,
     totalSourceLayers:

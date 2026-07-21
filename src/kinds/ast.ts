@@ -4,7 +4,7 @@
 // string) from `.HasColumnName("id")` (required) — AST can.
 
 import type { AstGrepConfig } from '../ast/matcher.js';
-import type { Severity } from '../types.js';
+import type { RuleOrigin, Severity } from '../types.js';
 
 export interface AstRuleSpec {
   /** Stable id, e.g. `csharp.ef.magic-property`. */
@@ -25,4 +25,11 @@ export interface AstRuleSpec {
 
 export function defineAstRule<const T extends AstRuleSpec>(rule: T): T {
   return Object.freeze(rule) as T;
+}
+
+/** A loaded AST rule ready for the runner (the `ast`-kind analog of CompiledRule). */
+export interface CompiledAstRule {
+  readonly spec: AstRuleSpec;
+  readonly source: string;
+  readonly origin: RuleOrigin;
 }
