@@ -68,6 +68,7 @@ export async function loadRules(options: LoaderOptions): Promise<LoaderRuleSet> 
   const { config, sources } = await loadConfig({ cwd, args: options.args });
 
   const allRules: CompiledRule[] = [];
+  const fileAstRules: CompiledAstRule[] = [];
   const seen = new Set<string>();
 
   // 1. User-global rule files
@@ -83,6 +84,7 @@ export async function loadRules(options: LoaderOptions): Promise<LoaderRuleSet> 
         seen.add(r.spec.id);
       }
     }
+    fileAstRules.push(...await loadAstRuleFilesUnder(userGlobalRoot, 'global'));
   }
 
   // 2. Project-local rule files in tools/audit/rules/
@@ -94,6 +96,7 @@ export async function loadRules(options: LoaderOptions): Promise<LoaderRuleSet> 
         seen.add(r.spec.id);
       }
     }
+    fileAstRules.push(...await loadAstRuleFilesUnder(repoRulesDir, 'repo'));
   }
 
   // 3. Inline rules from config.rules.detect[] and rules.fix[]
@@ -118,9 +121,17 @@ export async function loadRules(options: LoaderOptions): Promise<LoaderRuleSet> 
     }
   }
 
-  // 3b. Inline AST rules from config.rules.ast[] (the `ast` rule kind).
+  // 3b. AST rules — discovered from files (user-global + repo), then inline
+  // config.rules.ast[]. File-discovered rules win on id (first-seen).
   const astRules: CompiledAstRule[] = [];
   const astSeen = new Set<string>();
+  for (const r of fileAstRules) {
+    if (astSeen.has(r.spec.id) || config.rules.disable.includes(r.spec.id)) {
+      continue;
+    }
+    astRules.push(r);
+    astSeen.add(r.spec.id);
+  }
   for (const raw of config.rules.ast) {
     const spec = raw as unknown as AstRuleSpec;
     if (astSeen.has(spec.id) || config.rules.disable.includes(spec.id)) {
@@ -216,6 +227,67 @@ function isDetectRuleSpec(value: unknown): value is DetectRuleSpec {
     && typeof obj['severity'] === 'string'
     && typeof obj['pattern'] === 'string'
     && Array.isArray(obj['globs']);
+}
+
+function isAstRuleSpec(value: unknown): value is AstRuleSpec {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const obj = value as Record<string, unknown>;
+  return typeof obj['id'] === 'string'
+    && typeof obj['language'] === 'string'
+    && typeof obj['severity'] === 'string'
+    && Array.isArray(obj['globs'])
+    && typeof obj['ast'] === 'object'
+    && obj['ast'] !== null;
+}
+
+async function loadAstRuleFilesUnder(
+  root: string,
+  kind: Exclude<RuleOrigin['kind'], 'preset'>,
+): Promise<CompiledAstRule[]> {
+  if (!existsSync(root)) {
+    return [];
+  }
+  const { glob } = await import('tinyglobby');
+  const matches = await glob('**/*.{lint,rule}.ts', {
+    cwd: root,
+    absolute: true,
+    onlyFiles: true,
+  });
+  const rules: CompiledAstRule[] = [];
+  for (const absPath of matches) {
+    const spec = await importAstRuleFile(absPath);
+    if (spec === undefined) {
+      continue;
+    }
+    const baseName = absPath.replace(/\.(lint|rule)\.ts$/, '');
+    const siblingMd = `${baseName}.md`;
+    const source = spec.source ?? (existsSync(siblingMd) ? siblingMd : absPath);
+    rules.push({ spec, source, origin: { kind, path: absPath } });
+  }
+  return rules;
+}
+
+async function importAstRuleFile(absPath: string): Promise<AstRuleSpec | undefined> {
+  try {
+    const url = pathToFileURL(absPath).href;
+    const mod = await import(url);
+    if (isAstRuleSpec(mod.default)) {
+      return mod.default;
+    }
+    if (isAstRuleSpec(mod.rule)) {
+      return mod.rule;
+    }
+    for (const key of Object.keys(mod)) {
+      if (isAstRuleSpec(mod[key])) {
+        return mod[key];
+      }
+    }
+  } catch {
+    return undefined;
+  }
+  return undefined;
 }
 
 async function loadRuleFilesUnder(
