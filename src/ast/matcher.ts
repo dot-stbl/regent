@@ -8,6 +8,8 @@
 
 import { parse, registerDynamicLanguage } from '@ast-grep/napi';
 
+import { BUNDLES, resolveBundle } from '../bundles/index.js';
+
 /**
  * An ast-grep rule config (NapiConfig shape): a `rule` (pattern / kind /
  * relational operators) plus optional `constraints`. Passed to ast-grep
@@ -28,33 +30,44 @@ export interface AstMatch {
   readonly text: string;
 }
 
-const registered = new Set<string>();
+let registeredAll = false;
 
 /**
- * Register the ast-grep language pack (`@ast-grep/lang-<language>`) on first
- * use. The pack is the "bundle" — it carries the tree-sitter grammar and its
- * version, so pinning the pack pins the grammar. Throws a clear, actionable
- * error when the pack isn't installed.
+ * Register every bundle's grammar in ONE `registerDynamicLanguage` call,
+ * lazily on first use. napi only honours a single dynamic-registration call
+ * per process, so languages cannot be registered incrementally — we register
+ * the whole set at once. A pack that fails to import is skipped (using such a
+ * language later throws a clear error from `parseRoot`). Each pack is the
+ * "bundle": it carries the tree-sitter grammar + its version.
  */
-async function ensureLanguage(language: string): Promise<void> {
-  if (registered.has(language)) {
+async function registerAll(): Promise<void> {
+  if (registeredAll) {
     return;
   }
-  let mod: { default?: unknown };
+  const langs: Record<string, unknown> = {};
+  for (const b of BUNDLES) {
+    try {
+      const mod = (await import(b.pack)) as { default?: unknown };
+      langs[b.id] = mod.default ?? mod;
+    } catch {
+      // Pack not installed — skip; scanAst throws if that language is used.
+    }
+  }
+  // Cast through `never` so the index-signature type-check passes without
+  // importing napi's internal registration type.
+  registerDynamicLanguage(langs as never);
+  registeredAll = true;
+}
+
+function parseRoot(id: string, source: string) {
   try {
-    mod = (await import(`@ast-grep/lang-${language}`)) as { default?: unknown };
+    return parse(id, source).root();
   } catch (err) {
     throw new Error(
-      `regent: AST language pack '@ast-grep/lang-${language}' is not installed `
-      + `(required for language '${language}'). Add it as a dependency. `
-      + `Cause: ${(err as Error).message}`,
+      `regent: no language pack registered for '${id}' — add a bundle or an `
+      + `@ast-grep/lang-${id} dependency. Cause: ${(err as Error).message}`,
     );
   }
-  // The pack's default export is a napi LangRegistration; cast through
-  // `never` so the index-signature type-check passes without importing
-  // napi's internal registration type.
-  registerDynamicLanguage({ [language]: (mod.default ?? mod) as never });
-  registered.add(language);
 }
 
 /**
@@ -66,8 +79,13 @@ export async function scanAst(
   source: string,
   config: AstGrepConfig,
 ): Promise<AstMatch[]> {
-  await ensureLanguage(language);
-  const root = parse(language, source).root();
+  // Resolve aliases (e.g. `cs` → `csharp`) and the grammar pack via the
+  // bundle registry; fall back to the `@ast-grep/lang-<id>` convention for
+  // languages not in the registry.
+  const bundle = resolveBundle(language);
+  const id = bundle?.id ?? language.toLowerCase();
+  await registerAll();
+  const root = parseRoot(id, source);
   const hits = root.findAll(config as never);
   return hits.map((node) => {
     const r = node.range();

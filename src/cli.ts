@@ -36,6 +36,7 @@ import pc from 'picocolors';
 
 import { loadRules } from './loader.js';
 import { runRules } from './runner.js';
+import { BUNDLES } from './bundles/index.js';
 import { renderText, renderSummary } from './reporter/text.js';
 import { renderSarif } from './reporter/sarif.js';
 import { renderJsonFromRun } from './reporter/json.js';
@@ -136,6 +137,24 @@ program
   .option('--scope <dir>', 'scope directory', '.')
   .action(async (options) => {
     await runList(options);
+  });
+
+program
+  .command('bundles')
+  .description("List supported language bundles + the project's detected language versions")
+  .action(() => {
+    const cwd = process.cwd();
+    for (const b of BUNDLES) {
+      const detected = b.detectProjectVersion(cwd);
+      process.stdout.write(`${b.id}  (${b.pack})\n`);
+      process.stdout.write(`  globs:    ${b.defaultGlobs.join(', ')}\n`);
+      process.stdout.write(`  grammar:  ${b.grammarSupports}\n`);
+      process.stdout.write(`  project:  ${detected ?? '(not detected)'}\n`);
+      if (b.aliases.length > 0) {
+        process.stdout.write(`  aliases:  ${b.aliases.join(', ')}\n`);
+      }
+    }
+    process.exit(0);
   });
 
 program

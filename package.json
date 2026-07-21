@@ -1,7 +1,7 @@
 {
   "name": "@dot-stbl/regent",
   "version": "0.2.0",
-  "description": "Multi-mode static analysis framework for LLM agents — detect + fix rules, no bundled language packs",
+  "description": "Multi-mode static analysis framework for LLM agents — regex + AST rules over bundled language grammars (C#, TypeScript, Rust, Go)",
   "license": "MIT",
   "type": "module",
   "bin": {
@@ -35,6 +35,9 @@
   },
   "dependencies": {
     "@ast-grep/lang-csharp": "^0.0.6",
+    "@ast-grep/lang-go": "^0.0.6",
+    "@ast-grep/lang-rust": "^0.0.7",
+    "@ast-grep/lang-typescript": "^0.0.7",
     "@ast-grep/napi": "^0.44.1",
     "commander": "^15.0.0",
     "cosmiconfig": "^9.0.2",
@@ -78,6 +81,9 @@
   ],
   "homepage": "https://github.com/dot-stbl/regent#readme",
   "trustedDependencies": [
-    "@ast-grep/lang-csharp"
+    "@ast-grep/lang-csharp",
+    "@ast-grep/lang-go",
+    "@ast-grep/lang-rust",
+    "@ast-grep/lang-typescript"
   ]
 }
