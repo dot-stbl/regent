@@ -108,6 +108,17 @@ export interface DeferredEdit {
   readonly range: { readonly start: number; readonly end: number };
   readonly reason: 'overlap' | 'out-of-range' | 'no-fix-attached';
   readonly title?: string;
+  /**
+   * When `reason === 'overlap'`, the ruleId of the earlier-registered
+   * edit that won the contested byte span. Surfaced in the v1 wire
+   * format (`regent fix --format json`) as the suffix on `reason`
+   * — `"overlap with <winningRuleId>"` — so the agent can read the
+   * conflict directly (P5 of the fix-mode epic, #62).
+   *
+   * `undefined` for `out-of-range` and `no-fix-attached` (no winning
+   * rule to name).
+   */
+  readonly winningRuleId?: string;
 }
 
 export interface SuggestedEdit {
@@ -171,7 +182,14 @@ export class ApplyFixesConvergenceError extends Error {
 interface ApplyEditsResult {
   newContent: string;
   applied: { edit: RuleFixEdit; ruleId: string; title: string }[];
-  deferredOverlap: { edit: RuleFixEdit; ruleId: string; title: string; start: number; end: number }[];
+  /**
+   * Overlap-deferred edits. `winningRuleId` records the ruleId of the
+   * earlier-registered edit that won the contested byte span — the
+   * P5 v1 wire format surfaces this in `deferred[].reason` as
+   * `"overlap: <winningRuleId>"` so agents can read the conflict
+   * without re-deriving it from byte ranges.
+   */
+  deferredOverlap: { edit: RuleFixEdit; ruleId: string; title: string; start: number; end: number; winningRuleId: string }[];
 }
 
 interface PassResult {
@@ -344,10 +362,11 @@ function applyEditsToString(
   sorted: ReadonlyArray<{ start: number; edit: RuleFixEdit; ruleId: string; title: string }>,
 ): ApplyEditsResult {
   const applied: { edit: RuleFixEdit; ruleId: string; title: string }[] = [];
-  const deferredOverlap: { edit: RuleFixEdit; ruleId: string; title: string; start: number; end: number }[] = [];
+  const deferredOverlap: { edit: RuleFixEdit; ruleId: string; title: string; start: number; end: number; winningRuleId: string }[] = [];
   let result = '';
   let cursor = 0;
   let lastAppliedEnd = -1;
+  let lastAppliedRuleId = '';
 
   for (const { edit, ruleId, title } of sorted) {
     if (edit.end > content.length) {
@@ -356,12 +375,16 @@ function applyEditsToString(
     }
     if (edit.start < lastAppliedEnd) {
       // Overlaps with a previously applied edit on this file. Defer.
+      // Record which earlier-registered edit won the byte span so
+      // the v1 wire format can surface `"overlap: <winningRuleId>"`
+      // (P5 of the fix-mode epic, #62).
       deferredOverlap.push({
         edit,
         ruleId,
         title,
         start: edit.start,
         end: edit.end,
+        winningRuleId: lastAppliedRuleId,
       });
       continue;
     }
@@ -372,6 +395,7 @@ function applyEditsToString(
     result += edit.replacement;
     cursor = edit.end;
     lastAppliedEnd = edit.end;
+    lastAppliedRuleId = ruleId;
     applied.push({ edit, ruleId, title });
   }
   // Append the unchanged content after the last edit.
@@ -636,6 +660,7 @@ async function applyOnePass(
         range: { start: d.start, end: d.end },
         reason: 'overlap',
         title: d.title,
+        winningRuleId: d.winningRuleId,
       });
     }
   }

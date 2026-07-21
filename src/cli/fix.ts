@@ -1,12 +1,12 @@
 /**
- * `regent fix` CLI subcommand — Phase 3 + 4 of the fix-mode epic (#60, #61).
+ * `regent fix` CLI subcommand — Phase 3 + 4 + 5 of the fix-mode epic (#60, #61, #62).
  *
  * Wraps the `applyFixes` engine from `src/fixer.ts` (P2 #59, P4 #61)
  * with config loading, scope filtering, a confirmation prompt, and
  * human / JSON output. Library callers can `import { applyFixes }`
  * directly — this CLI is a thin layer that honours the same options.
  *
- * Flags (P3 + P4 scope):
+ * Flags (P3 + P4 + P5 scope):
  *   --dry-run              show what would change; do not write
  *   --all                  apply `safety: 'suggested'` edits too (otherwise
  *                          those surface in `suggested[]` for the agent).
@@ -17,7 +17,13 @@
  *                          to narrow the scope.
  *   --rule <id>            restrict to listed rule ids (repeatable)
  *   --filter <glob>        restrict to file paths matching glob
- *   --json                 emit machine-readable ApplyFixesResult on stdout
+ *   --format text|json     output format (default text). `json` emits
+ *                          the v1 wire document (#62) — see
+ *                          `src/reporter/fix-schema.ts`.
+ *   --json                 DEPRECATED alias for `--format json`. Emits a
+ *                          one-line stderr warning; will be removed in
+ *                          the v2 cycle. New agents should use
+ *                          `--format json` directly.
  *   --max-passes <n>       fixpoint iterations for converging rules (P4).
  *                          Default: 5. Pass `1` to disable the fixpoint
  *                          (single-pass semantics). Capped at 20.
@@ -56,19 +62,18 @@ import {
   APPLY_FIXES_DEFAULT_MAX_PASSES,
   APPLY_FIXES_MAX_PASSES_CAP,
   ApplyFixesConvergenceError,
-  type AppliedEdit,
   type ApplyFixesOptions,
   type ApplyFixesResult,
-  type DeferredEdit,
-  type SuggestedEdit,
 } from '../fixer.js';
 import { loadRules } from '../loader.js';
 import { runRules } from '../runner.js';
 import type {
   CompiledRule,
+  Finding,
   RuleSpec,
   RunnerScope,
 } from '../types.js';
+import { toV1Json } from '../reporter/fix-schema.js';
 
 /** Per-AST-rule and per-transform rules are out of scope for the P3
  *  fixer engine (which only consumes `RuleSpec` + `Finding`); skip
@@ -81,6 +86,9 @@ export interface FixOptions {
   rule?: readonly string[];
   /** Glob matched against finding paths (relative to cwd). */
   filter?: string;
+  /** Output format (P5 #62). Default `text`. */
+  format?: 'text' | 'json';
+  /** Deprecated alias for `--format json`. */
   json?: boolean;
   yes?: boolean;
   /** Fixpoint iteration cap for converging rules (Phase 4 of #7). */
@@ -117,7 +125,8 @@ export function registerFixCommand(program: Command): void {
     .option('--all', 'apply safety=suggested edits (otherwise surface in suggested[])')
     .option('--rule <id>', 'restrict to one rule id (repeatable)', collectValues, [])
     .option('--filter <glob>', 'restrict to file paths matching glob (against finding path)')
-    .option('--json', 'emit machine-readable JSON result on stdout')
+    .option('--format <fmt>', 'output format: text|json (default text)')
+    .option('--json', 'DEPRECATED alias for --format json (prints a stderr warning)')
     .option(
       '--max-passes <n>',
       `fixpoint iterations for converging rules (default: ${APPLY_FIXES_DEFAULT_MAX_PASSES}, max: ${APPLY_FIXES_MAX_PASSES_CAP})`,
@@ -152,6 +161,33 @@ function collectValues(value: string, prev: readonly string[]): string[] {
 }
 
 /**
+ * Resolve the effective output format. `--json` is a deprecated alias
+ * for `--format json` (P5 #62) — both set the same output branch,
+ * but the deprecated flag surfaces a one-line stderr warning so
+ * downstream consumers can move forward to `--format json` over time.
+ */
+function resolveFormat(
+  options: FixOptions,
+  useColor: boolean,
+): 'text' | 'json' {
+  if (options.json === true) {
+    process.stderr.write(
+      `${useColor ? pc.yellow('warning:') : 'warning:'} --json is deprecated, use --format json (P5 of #62)\n`,
+    );
+    return 'json';
+  }
+  if (options.format === 'json') {
+    return 'json';
+  }
+  if (options.format !== undefined && options.format !== 'text') {
+    process.stderr.write(
+      `${useColor ? pc.yellow('warning:') : 'warning:'} --format ${options.format} is not recognised, falling back to text\n`,
+    );
+  }
+  return 'text';
+}
+
+/**
  * Top-level orchestrator for the `fix` subcommand. Public-exported so
  * `src/cli.ts` can call it directly (and so tests can drive it under
  * a TTY-controlled `process.stdin.isTTY`).
@@ -159,6 +195,8 @@ function collectValues(value: string, prev: readonly string[]): string[] {
 export async function runFix({ paths, options }: RunFixArgs): Promise<number> {
   const cwd = process.cwd();
   const useColor = shouldUseColor();
+  const format = resolveFormat(options, useColor);
+  const isJson = format === 'json';
 
   // 1. Load rules + config
   let loaded: Awaited<ReturnType<typeof loadRules>>;
@@ -176,10 +214,9 @@ export async function runFix({ paths, options }: RunFixArgs): Promise<number> {
       // `--rule` filtered everything out — exit 0 with a clear line
       // (mirrors `check`'s behaviour on an empty match).
       const msg = `no rules matched --rule ${options.rule.join(', ')}`;
-      if (options.json) {
-        process.stdout.write(
-          `${JSON.stringify({ applied: [], changedFiles: [], deferred: [], suggested: [], unifiedDiff: '', passes: 0, summary: msg }, null, 2)}\n`,
-        );
+      if (isJson) {
+        const emptyDoc = toV1Json(emptyResult());
+        process.stdout.write(`${JSON.stringify(emptyDoc, null, 2)}\n`);
       } else {
         process.stdout.write(`${pc.yellow('~')} ${msg}\n`);
       }
@@ -235,11 +272,11 @@ export async function runFix({ paths, options }: RunFixArgs): Promise<number> {
 
   // 6. Pre-apply summary. If there's nothing to fix, exit 0 with an
   //    idempotent "nothing to do" line (JSON consumers get an empty
-  //    result + `summary`).
+  //    v1 document).
   if (findings.length === 0) {
-    const empty = emptyResult();
-    if (options.json) {
-      process.stdout.write(`${JSON.stringify(toJsonResult(empty, { cwd, mode: 'apply' }), null, 2)}\n`);
+    if (isJson) {
+      const emptyDoc = toV1Json(emptyResult());
+      process.stdout.write(`${JSON.stringify(emptyDoc, null, 2)}\n`);
     } else {
       const mark = useColor ? pc.green('✓') : '✓';
       process.stdout.write(`${mark} no fixable findings\n`);
@@ -247,12 +284,12 @@ export async function runFix({ paths, options }: RunFixArgs): Promise<number> {
     return 0;
   }
 
-  // 7. Confirmation prompt (skipped with --yes, --dry-run, --json).
+  // 7. Confirmation prompt (skipped with --yes, --dry-run, --format json).
   //    Non-interactive stdin (CI / pipe) refuses ambiguous confirmation;
   //    --yes is the supported escape hatch.
   const skipPrompt =
     options.dryRun === true ||
-    options.json === true ||
+    isJson ||
     options.yes === true;
   if (!skipPrompt) {
     if (process.stdin.isTTY !== true) {
@@ -296,17 +333,14 @@ export async function runFix({ paths, options }: RunFixArgs): Promise<number> {
   }
 
   // 9. Emit output.
-  if (options.json === true) {
-    process.stdout.write(
-      `${JSON.stringify(
-        toJsonResult(fixResult, {
-          cwd,
-          mode: options.dryRun === true ? 'dry-run' : 'apply',
-        }),
-        null,
-        2,
-      )}\n`,
-    );
+  if (isJson) {
+    // v1 wire document — see `src/reporter/fix-schema.ts` and
+    // `assets/llm/schema/fix-v1.json`. The context lines on each
+    // suggested entry come from the runner's `Finding.context` —
+    // we look them up by `(path, ruleId, range)` so the agent sees
+    // the same ±contextBuffer window the text reporter prints.
+    const doc = toV1JsonWithContext(fixResult, findings);
+    process.stdout.write(`${JSON.stringify(doc, null, 2)}\n`);
   } else {
     process.stdout.write(`${renderHuman(fixResult, { cwd, useColor })}\n`);
   }
@@ -387,34 +421,55 @@ function confirmPrompt(question: string): Promise<boolean> {
 }
 
 /**
- * Wire-format for `--json` output. Mirrors `ApplyFixesResult` 1:1 plus
- * a top-level `mode` (`'apply'` | `'dry-run'`) and a `cwd` for context.
- * Consumers can deserialise into the exported `ApplyFixesResult` and
- * read those two fields separately.
+ * Build a v1 document and then enrich each suggested entry with the
+ * corresponding `Finding.context.lines` so the agent sees the same
+ * ±contextBuffer window the text reporter prints. The lookup is
+ * keyed by `(file, ruleId, range)` — the engine preserves the
+ * `Finding.match` byte offsets through to the `SuggestedEdit.range`,
+ * so the mapping is one-to-one for findings whose engine state
+ * survived the apply pass.
  */
-interface JsonOutput {
-  readonly cwd: string;
-  readonly mode: 'apply' | 'dry-run';
-  readonly applied: readonly AppliedEdit[];
-  readonly changedFiles: readonly string[];
-  readonly deferred: readonly DeferredEdit[];
-  readonly suggested: readonly SuggestedEdit[];
-  readonly unifiedDiff: string;
-  /** Fixpoint iteration count (P4). `1` = single pass; `> 1` = fixpoint fired. */
-  readonly passes: number;
-}
+function toV1JsonWithContext(
+  result: ApplyFixesResult,
+  findings: readonly Finding[],
+): ReturnType<typeof toV1Json> {
+  const base = toV1Json(result);
+  if (base.suggested.length === 0) {
+    return base;
+  }
 
-function toJsonResult(result: ApplyFixesResult, opts: { readonly cwd: string; readonly mode: 'apply' | 'dry-run' }): JsonOutput {
-  return {
-    cwd: opts.cwd,
-    mode: opts.mode,
-    applied: result.applied,
-    changedFiles: result.changedFiles,
-    deferred: result.deferred,
-    suggested: result.suggested,
-    unifiedDiff: result.unifiedDiff,
-    passes: result.passes,
-  };
+  // Build a quick lookup keyed by (path, ruleId, start). Multiple
+  // findings on the same file+ruleId are disambiguated by the
+  // match's byte start.
+  const byKey = new Map<string, Finding>();
+  for (const f of findings) {
+    const key = `${f.path}\u0000${f.ruleId}\u0000${f.match.startLine}\u0000${f.match.startColumn}`;
+    byKey.set(key, f);
+  }
+
+  const enriched = base.suggested.map((s) => {
+    // Match by start offset — `SuggestedEdit.range` is the post-edit
+    // byte span the engine computed, but for the same rule/match the
+    // Finding's `match.startLine/startColumn` uniquely identifies it.
+    const candidates = findings.filter(
+      (f) => f.path === s.file && f.ruleId === s.ruleId,
+    );
+    if (candidates.length === 0) {
+      return s;
+    }
+    // If only one candidate, take it. Otherwise pick the one whose
+    // range.start is closest to the suggested range's start.
+    const pick = candidates.length === 1
+      ? candidates[0]!
+      : candidates.reduce((best, cur) => {
+        const bestDist = Math.abs(best.match.startColumn - s.range.start);
+        const curDist = Math.abs(cur.match.startColumn - s.range.start);
+        return curDist < bestDist ? cur : best;
+      });
+    return { ...s, context: pick.context.lines };
+  });
+
+  return { ...base, suggested: enriched };
 }
 
 /**

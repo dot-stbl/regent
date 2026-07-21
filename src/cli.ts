@@ -48,7 +48,7 @@ import { renderBanner } from './cli/banner.js';
 import { registerFixCommand } from './cli/fix.js';
 import { loadLlmText } from './llm.js';
 import { routeLlm } from './llm-router.js';
-import { renderDetectSchemaJson, renderFixSchemaJson } from './llm-schema.js';
+import { renderDetectSchemaJson, renderFixRuleSchemaJson } from './llm-schema.js';
 import { loadConfig } from './config/index.js';
 import {
   showField,
@@ -334,21 +334,22 @@ program
   .command('llm')
   .description('Print LLM-friendly skill documentation')
   .argument('[sub...]', 'subcommand path (e.g. "authoring detect", "examples csharp")')
-  .option('--json', 'emit JSON Schema instead of markdown (works for "schema detect" / "schema fix")')
+  .option('--json', 'emit JSON Schema instead of markdown (works for "schema detect-rule" / "schema fix-rule")')
   .action((sub: string[], options) => {
     const subArgs = sub ?? [];
-    // `--json` short-circuits the markdown router for the two schema
-    // subcommands; other subcommands ignore the flag and behave as before.
+    // `--json` short-circuits the markdown router for the two
+    // RULE-spec schema subcommands (P5 #62 renamed: `fix` →
+    // `fix-rule` to free up `fix` for the new v1 OUTPUT schema).
     if (options.json) {
-      if (subArgs.length === 2 && subArgs[0] === 'schema' && subArgs[1] === 'detect') {
+      if (subArgs.length === 2 && subArgs[0] === 'schema' && subArgs[1] === 'detect-rule') {
         process.stdout.write(renderDetectSchemaJson());
         process.exit(0);
       }
-      if (subArgs.length === 2 && subArgs[0] === 'schema' && subArgs[1] === 'fix') {
-        process.stdout.write(renderFixSchemaJson());
+      if (subArgs.length === 2 && subArgs[0] === 'schema' && subArgs[1] === 'fix-rule') {
+        process.stdout.write(renderFixRuleSchemaJson());
         process.exit(0);
       }
-      getLogger().error({}, '`--json` is only valid with `regent llm schema detect` or `regent llm schema fix`');
+      getLogger().error({}, '`--json` is only valid with `regent llm schema detect-rule` or `regent llm schema fix-rule`');
       process.exit(2);
       return;
     }

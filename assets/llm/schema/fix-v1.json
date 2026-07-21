@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/dot-stbl/regent/schemas/fix-v1.json",
+  "title": "regent fix output (v1)",
+  "description": "Wire format of `regent fix --format json` (issue #62). The document carries exactly three top-level keys: edits the engine applied to disk (`applied`), edits the engine surfaced for the agent to judge (`suggested`), and edits the engine deferred because it could not resolve them (`deferred`). Top-level additional properties are forbidden — additions go into v2.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["applied", "suggested", "deferred"],
+  "properties": {
+    "applied": {
+      "type": "array",
+      "description": "Edits the engine wrote to disk. Safe-lane deterministic fixes only.",
+      "items": { "$ref": "#/$defs/appliedEdit" }
+    },
+    "suggested": {
+      "type": "array",
+      "description": "Edits the engine did NOT apply (safety='suggested' or guidance-only). The agent decides per item.",
+      "items": { "$ref": "#/$defs/suggestedEdit" }
+    },
+    "deferred": {
+      "type": "array",
+      "description": "Edits the engine could not resolve — overlapping edits, out-of-range offsets, or rules with no fix attached.",
+      "items": { "$ref": "#/$defs/deferredEdit" }
+    }
+  },
+  "$defs": {
+    "range": {
+      "type": "object",
+      "description": "File-absolute byte offsets, half-open: `[start, end)`.",
+      "additionalProperties": false,
+      "required": ["start", "end"],
+      "properties": {
+        "start": { "type": "integer", "minimum": 0 },
+        "end":   { "type": "integer", "minimum": 0 }
+      }
+    },
+    "proposedEdit": {
+      "type": "object",
+      "description": "Concrete byte-span replacement the agent can choose to apply.",
+      "additionalProperties": false,
+      "required": ["start", "end", "replacement"],
+      "properties": {
+        "start":       { "type": "integer", "minimum": 0 },
+        "end":         { "type": "integer", "minimum": 0 },
+        "replacement": { "type": "string" }
+      }
+    },
+    "appliedEdit": {
+      "type": "object",
+      "description": "Edit the engine applied. `before` and `after` are the exact substrings (UTF-16 code units) that were replaced.",
+      "additionalProperties": false,
+      "required": ["ruleId", "file", "range", "title", "before", "after"],
+      "properties": {
+        "ruleId": { "type": "string", "minLength": 1 },
+        "file":   { "type": "string", "minLength": 1 },
+        "range":  { "$ref": "#/$defs/range" },
+        "title":  { "type": "string", "minLength": 1 },
+        "before": { "type": "string" },
+        "after":  { "type": "string" }
+      }
+    },
+    "suggestedEdit": {
+      "type": "object",
+      "description": "Edit the engine surfaced for agent judgement. `proposedEdit` is null for guidance-only fixes; otherwise it is the byte-span replacement the rule computed.",
+      "additionalProperties": false,
+      "required": ["ruleId", "file", "range", "title", "guidance", "proposedEdit", "context"],
+      "properties": {
+        "ruleId":      { "type": "string", "minLength": 1 },
+        "file":        { "type": "string", "minLength": 1 },
+        "range":       { "$ref": "#/$defs/range" },
+        "title":       { "type": "string", "minLength": 1 },
+        "guidance":    { "type": ["string", "null"] },
+        "proposedEdit": {
+          "oneOf": [
+            { "$ref": "#/$defs/proposedEdit" },
+            { "type": "null" }
+          ]
+        },
+        "context": {
+          "type": "array",
+          "description": "Lines around the match (the ±contextBuffer from the runner). Each entry is the raw line text without trailing newline.",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "deferredEdit": {
+      "type": "object",
+      "description": "Edit the engine could not apply. `reason` is a stable token; the human-readable detail (e.g. the winning ruleId on overlap) is appended after a colon-and-space.",
+      "additionalProperties": false,
+      "required": ["ruleId", "file", "range", "reason"],
+      "properties": {
+        "ruleId": { "type": "string", "minLength": 1 },
+        "file":   { "type": "string", "minLength": 1 },
+        "range":  { "$ref": "#/$defs/range" },
+        "reason": {
+          "type": "string",
+          "description": "`overlap with <winning-ruleId>` when a higher-priority edit won the byte span; `out-of-range` when the file changed mid-run; `no-fix-attached` when the rule fired without a `fix` attachment.",
+          "pattern": "^(overlap with [^\\s]+|out-of-range|no-fix-attached)$"
+        }
+      }
+    }
+  }
+}

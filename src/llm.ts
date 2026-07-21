@@ -73,3 +73,26 @@ export function tryResolveLlmPath(relativePath: string): string | null {
     return null;
   }
 }
+
+/**
+ * Read a JSON file from `assets/llm/`. Used by `regent llm schema fix`
+ * to fetch the v1 output-schema artifact (`fix-v1.json`). Throws
+ * when the file is missing or the contents don't parse as JSON.
+ *
+ * The parse-and-stringify round-trip is intentional — the CLI emits
+ * the document on stdout and any extra whitespace or trailing-comma
+ * noise would break downstream parsers (issue #62).
+ */
+export function loadLlmJson(relativePath: string): Record<string, unknown> {
+  const root = findLlmRoot();
+  const path = join(root, relativePath);
+  if (!existsSync(path)) {
+    throw new Error(`regent llm: no schema at ${relativePath}`);
+  }
+  const text = readFileSync(path, 'utf8');
+  const parsed = JSON.parse(text);
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    throw new Error(`regent llm: ${relativePath} is not a JSON object`);
+  }
+  return parsed as Record<string, unknown>;
+}
