@@ -34,6 +34,8 @@
     "node": ">=20"
   },
   "dependencies": {
+    "@ast-grep/lang-csharp": "^0.0.6",
+    "@ast-grep/napi": "^0.44.1",
     "commander": "^15.0.0",
     "cosmiconfig": "^9.0.2",
     "dotenv": "^17.4.2",
@@ -74,5 +76,8 @@
     "regex",
     "stbl"
   ],
-  "homepage": "https://github.com/dot-stbl/regent#readme"
+  "homepage": "https://github.com/dot-stbl/regent#readme",
+  "trustedDependencies": [
+    "@ast-grep/lang-csharp"
+  ]
 }
