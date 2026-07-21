@@ -45,6 +45,7 @@ import { renderReview, renderReviewJson } from './reporter/review.js';
 import type { AcceptEntry, CompiledRule, Finding, RunResult, RunnerScope, Severity } from './types.js';
 import type { CompiledAstRule } from './kinds/ast.js';
 import { renderBanner } from './cli/banner.js';
+import { registerFixCommand } from './cli/fix.js';
 import { loadLlmText } from './llm.js';
 import { routeLlm } from './llm-router.js';
 import { renderDetectSchemaJson, renderFixSchemaJson } from './llm-schema.js';
@@ -223,6 +224,8 @@ program
     const exitCode = await runReject(ruleId, pathLine, options);
     process.exit(exitCode);
   });
+
+registerFixCommand(program);
 
 program
   .command('cache')
