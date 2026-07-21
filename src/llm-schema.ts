@@ -114,8 +114,13 @@ export function renderDetectSchemaJson(): string {
 
 /**
  * Render the `FixRuleSpec` JSON Schema document (issue #14).
+ *
+ * Renamed from `renderFixSchemaJson` in P5 (#62) so the name no
+ * longer collides with the new `regent llm schema fix` route, which
+ * now points at the v1 fix-output JSON schema artifact. The fix-RULE
+ * spec emitter is reachable via `regent llm schema fix-rule --json`.
  */
-export function renderFixSchemaJson(): string {
+export function renderFixRuleSchemaJson(): string {
   const doc = toJsonDocument(FixRuleSpecV3Schema, {
     name: 'FixRuleSpec',
     title: 'regent fix-rule spec',

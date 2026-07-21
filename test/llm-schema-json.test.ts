@@ -1,14 +1,18 @@
 /**
- * L1: llm schema JSON emitter — `regent llm schema detect --json` /
- * `regent llm schema fix --json`.
+ * L1: llm schema JSON emitter — `regent llm schema detect-rule --json` /
+ * `regent llm schema fix-rule --json`.
  *
  * Validates:
  *   - output is JSON.parse-able
  *   - has `$schema: ...draft/2020-12/schema`
  *   - is a non-empty object schema with `properties`, `required`, `type: object`
  *   - mentions every required field from the source Zod schema
- *   - CLI integration: `regent llm schema detect --json` / `schema fix --json`
+ *   - CLI integration: `regent llm schema detect-rule --json` / `schema fix-rule --json`
  *     exit 0 with the expected document shape on stdout
+ *
+ * P5 (#62) renamed the rule-spec schema routes to `detect-rule` and
+ * `fix-rule` so `regent llm schema fix` could be repurposed for the
+ * new v1 OUTPUT schema (`fix-v1.json` — see `test/fixer-json-schema.test.ts`).
  */
 
 import { spawn } from 'node:child_process';
@@ -17,7 +21,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { renderDetectSchemaJson, renderFixSchemaJson } from '../src/llm-schema.js';
+import { renderDetectSchemaJson, renderFixRuleSchemaJson } from '../src/llm-schema.js';
 
 const REPO = join(tmpdir(), `regent-llm-schema-smoke-${Date.now()}`);
 const CLI = join(import.meta.dirname, '..', 'dist', 'cli.js');
@@ -136,8 +140,8 @@ describe('renderDetectSchemaJson', () => {
   });
 });
 
-describe('renderFixSchemaJson', () => {
-  const json = renderFixSchemaJson();
+describe('renderFixRuleSchemaJson', () => {
+  const json = renderFixRuleSchemaJson();
   let doc: Record<string, unknown>;
 
   it('emits valid JSON', () => {
@@ -183,8 +187,8 @@ describe('regent llm schema --json CLI integration', () => {
     expect(existsSync(CLI)).toBe(true);
   });
 
-  it('regent llm schema detect --json emits the JSON schema and exits 0', async () => {
-    const r = await runCli(['llm', 'schema', 'detect', '--json']);
+  it('regent llm schema detect-rule --json emits the JSON schema and exits 0', async () => {
+    const r = await runCli(['llm', 'schema', 'detect-rule', '--json']);
     expect(r.code).toBe(0);
     const parsed = JSON.parse(r.stdout);
     expect(parsed.$schema).toBe('https://json-schema.org/draft/2020-12/schema');
@@ -194,8 +198,8 @@ describe('regent llm schema --json CLI integration', () => {
     );
   });
 
-  it('regent llm schema fix --json emits the JSON schema and exits 0', async () => {
-    const r = await runCli(['llm', 'schema', 'fix', '--json']);
+  it('regent llm schema fix-rule --json emits the JSON schema and exits 0', async () => {
+    const r = await runCli(['llm', 'schema', 'fix-rule', '--json']);
     expect(r.code).toBe(0);
     const parsed = JSON.parse(r.stdout);
     expect(parsed.$schema).toBe('https://json-schema.org/draft/2020-12/schema');

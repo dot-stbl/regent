@@ -152,10 +152,10 @@ describe('regent fix CLI', () => {
     const file = join(cwd, 'a.txt');
     writeFileSync(file, 'hello TARGET world\n', 'utf8');
 
-    const r = await runCli(['fix', '--dry-run', '--yes', '--json'], cwd);
+    const r = await runCli(['fix', '--dry-run', '--yes', '--format', 'json'], cwd);
     expect(r.code).toBe(0);
-    expect(r.stdout).toContain('"mode": "dry-run"');
     expect(r.stdout).toContain('"applied"');
+    expect(r.stdout).toContain('"TARGET"');
     // File unchanged on disk.
     expect(readFileSync(file, 'utf8')).toBe('hello TARGET world\n');
   });
@@ -192,7 +192,7 @@ describe('regent fix CLI', () => {
     const file = join(cwd, 'a.txt');
     writeFileSync(file, 'hello TARGET world\n', 'utf8');
 
-    const r = await runCli(['fix', '--yes', '--json'], cwd);
+    const r = await runCli(['fix', '--yes', '--format', 'json'], cwd);
     expect(r.code).toBe(0);
 
     const json = JSON.parse(r.stdout);
@@ -223,7 +223,7 @@ describe('regent fix CLI', () => {
     const file = join(cwd, 'a.txt');
     writeFileSync(file, 'hello TARGET world\n', 'utf8');
 
-    const r = await runCli(['fix', '--all', '--yes', '--json'], cwd);
+    const r = await runCli(['fix', '--all', '--yes', '--format', 'json'], cwd);
     expect(r.code).toBe(0);
 
     const json = JSON.parse(r.stdout);
@@ -239,7 +239,7 @@ describe('regent fix CLI', () => {
 
     // Restrict to rule-a only — 'world' must remain 'world' on disk.
     const r = await runCli(
-      ['fix', '--yes', '--rule', 'cli-fix.rule-a', '--json'],
+      ['fix', '--yes', '--rule', 'cli-fix.rule-a', '--format', 'json'],
       cwd,
     );
     expect(r.code).toBe(0);
@@ -251,7 +251,7 @@ describe('regent fix CLI', () => {
     expect(appliedIds).not.toContain('cli-fix.rule-b');
   });
 
-  it('5. overlapping edits defer → exit 1 with overlap reason', async () => {
+  it('5. overlapping edits defer → exit 1 with overlap reason + winning ruleId', async () => {
     writeConfig(overlappingConfig('cli-fix.overlap-a', 'cli-fix.overlap-b'));
     // 'abcdefg' lays out byte ranges:
     //   pattern `ab.` matches 'abc' at [0..3]
@@ -260,43 +260,69 @@ describe('regent fix CLI', () => {
     const file = join(cwd, 'a.txt');
     writeFileSync(file, 'abcdefg\n', 'utf8');
 
-    const r = await runCli(['fix', '--yes', '--json'], cwd);
+    const r = await runCli(['fix', '--yes', '--format', 'json'], cwd);
     expect(r.code).toBe(1);
 
     const json = JSON.parse(r.stdout);
     expect(json.applied).toHaveLength(1);
     expect(json.applied[0]!.ruleId).toBe('cli-fix.overlap-a');
-    expect(json.deferred.some(
-      (d: { reason: string; ruleId: string }) =>
-        d.reason === 'overlap' && d.ruleId === 'cli-fix.overlap-b',
-    )).toBe(true);
+    // P5 v1 wire format: deferred[].reason is `"overlap with <winningRuleId>"`
+    // (issue #62). The earlier-registered edit `cli-fix.overlap-a` won the
+    // byte span; `cli-fix.overlap-b` was deferred.
+    const deferredB = json.deferred.find(
+      (d: { ruleId: string }) => d.ruleId === 'cli-fix.overlap-b',
+    );
+    expect(deferredB).toBeDefined();
+    expect(deferredB!.reason).toBe('overlap with cli-fix.overlap-a');
     // The first-registered edit wins on the byte span; engine collapses
     // 'abc' → 'XXX' on disk.
     expect(readFileSync(file, 'utf8')).toBe('XXXdefg\n');
   });
 
-  it('6. --json output shape: cwd, mode, applied, changedFiles, deferred, suggested', async () => {
+  it('6. --format json emits the v1 wire document (applied/suggested/deferred only)', async () => {
     writeConfig(safeReplaceConfig('cli-fix.json', 'X', 'Y'));
     const file = join(cwd, 'a.txt');
     writeFileSync(file, 'one X two\n', 'utf8');
 
-    const r = await runCli(['fix', '--yes', '--json'], cwd);
+    const r = await runCli(['fix', '--yes', '--format', 'json'], cwd);
     expect(r.code).toBe(0);
     expect(r.stdout).toMatch(/^\{/);
 
     const json = JSON.parse(r.stdout);
-    expect(json.cwd).toBe(cwd);
-    expect(json.mode).toBe('apply');
+    // v1 wire format — exactly three top-level keys (issue #62).
+    expect(Object.keys(json).sort()).toEqual(
+      expect.arrayContaining(['applied', 'suggested', 'deferred']),
+    );
+    // No implementation-detail fields leak into v1.
+    expect(json.cwd).toBeUndefined();
+    expect(json.mode).toBeUndefined();
+    expect(json.changedFiles).toBeUndefined();
+    expect(json.unifiedDiff).toBeUndefined();
+    expect(json.passes).toBeUndefined();
     expect(Array.isArray(json.applied)).toBe(true);
     expect(Array.isArray(json.deferred)).toBe(true);
     expect(Array.isArray(json.suggested)).toBe(true);
-    expect(Array.isArray(json.changedFiles)).toBe(true);
-    expect(typeof json.unifiedDiff).toBe('string');
     expect(json.applied[0]).toMatchObject({
       ruleId: 'cli-fix.json',
       before: 'X',
       after: 'Y',
     });
+    expect(json.applied[0].range).toEqual({ start: expect.any(Number), end: expect.any(Number) });
+  });
+
+  it('--json (deprecated) still emits the v1 wire format with a stderr warning', async () => {
+    writeConfig(safeReplaceConfig('cli-fix.deprecated-json', 'X', 'Y'));
+    const file = join(cwd, 'a.txt');
+    writeFileSync(file, 'one X two\n', 'utf8');
+
+    const r = await runCli(['fix', '--yes', '--json'], cwd);
+    expect(r.code).toBe(0);
+    // The deprecation warning goes to stderr so consumers piping
+    // stdout to a JSON parser don't see it mixed into the document.
+    expect(r.stderr).toMatch(/--json is deprecated/);
+    const json = JSON.parse(r.stdout);
+    expect(Array.isArray(json.applied)).toBe(true);
+    expect(json.applied[0]!.ruleId).toBe('cli-fix.deprecated-json');
   });
 
   it('--yes with non-TTY stdin is well-defined (CI smoke)', async () => {
