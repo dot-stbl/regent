@@ -129,10 +129,30 @@ async function loadYamlLike(filepath: string): Promise<RegentConfig | null> {
 }
 
 /**
+ * Provenance-aware result returned by the layer loaders that include
+ * a file path. Callers that don't care about provenance should use the
+ * `RegentConfig`-returning helpers (`loadProjectConfig`, `loadGlobalConfig`,
+ * `loadLocalConfig`) directly.
+ */
+export interface LoadedConfigLayer {
+  readonly config: RegentConfig;
+  readonly path: string | null;
+}
+
+/**
  * Load the project config from the cwd. Walks up directories looking
  * for `.regentrc.*` / `package.json#regent`.
  */
 export async function loadProjectConfig(cwd: string): Promise<RegentConfig | null> {
+  const layer = await loadProjectConfigLayer(cwd);
+  return layer?.config ?? null;
+}
+
+/**
+ * Like `loadProjectConfig` but also returns the absolute file path
+ * cosmiconfig resolved. Used by `loadConfig()` for per-layer provenance.
+ */
+export async function loadProjectConfigLayer(cwd: string): Promise<LoadedConfigLayer | null> {
   const result = await fileExplorer.search(cwd);
   if (!result || result.isEmpty) {
     return null;
@@ -143,7 +163,7 @@ export async function loadProjectConfig(cwd: string): Promise<RegentConfig | nul
   if (!parsed.ok) {
     throw new Error(`config validation failed at ${result.filepath}: ${parsed.error}`);
   }
-  return parsed.value;
+  return { config: parsed.value, path: result.filepath };
 }
 
 /**
@@ -152,6 +172,14 @@ export async function loadProjectConfig(cwd: string): Promise<RegentConfig | nul
  * search strategy but rooted at `$HOME/.config/regent`.
  */
 export async function loadGlobalConfig(_cwd: string): Promise<RegentConfig | null> {
+  const layer = await loadGlobalConfigLayer(_cwd);
+  return layer?.config ?? null;
+}
+
+/**
+ * Like `loadGlobalConfig` but also returns the absolute file path.
+ */
+export async function loadGlobalConfigLayer(_cwd: string): Promise<LoadedConfigLayer | null> {
   const home = process.env['HOME'] ?? process.env['USERPROFILE'];
   if (!home) {
     return null;
@@ -160,7 +188,7 @@ export async function loadGlobalConfig(_cwd: string): Promise<RegentConfig | nul
   if (!existsSync(globalRoot)) {
     return null;
   }
-  return loadProjectConfig(globalRoot);
+  return loadProjectConfigLayer(globalRoot);
 }
 
 /**
@@ -169,6 +197,14 @@ export async function loadGlobalConfig(_cwd: string): Promise<RegentConfig | nul
  * locally without changing committed config.
  */
 export async function loadLocalConfig(cwd: string): Promise<RegentConfig | null> {
+  const layer = await loadLocalConfigLayer(cwd);
+  return layer?.config ?? null;
+}
+
+/**
+ * Like `loadLocalConfig` but also returns the absolute file path.
+ */
+export async function loadLocalConfigLayer(cwd: string): Promise<LoadedConfigLayer | null> {
   // Same search semantics as project config — cosmiconfig finds the
   // nearest `.regentrc.local.*` (or `package.json#regent` with a local
   // flag, but for now we just look for `.regentrc.local.*`).
@@ -199,5 +235,5 @@ export async function loadLocalConfig(cwd: string): Promise<RegentConfig | null>
   if (!parsed.ok) {
     throw new Error(`local config validation failed at ${result.filepath}: ${parsed.error}`);
   }
-  return parsed.value;
+  return { config: parsed.value, path: result.filepath };
 }

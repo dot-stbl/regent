@@ -173,3 +173,32 @@ export function buildEnvConfig(): RegentConfig | null {
   }
   return parsed.value;
 }
+
+/**
+ * Map each recognised env-var name to its dotted config path.
+ * Used by `loadConfig()` to report per-field provenance for the
+ * `regent config show` / `regent config diff` commands.
+ */
+export const ENV_VAR_TO_PATH: ReadonlyArray<readonly [string, string]> = [
+  [`${PREFIX}LOG_LEVEL`, 'log.level'],
+  [`${PREFIX}LOG_FORMAT`, 'log.format'],
+  [`${PREFIX}CACHE_ENABLED`, 'cache.enabled'],
+  [`${PREFIX}CACHE_MAX_BYTES`, 'cache.maxBytes'],
+  [`${PREFIX}OUTPUT_COLOR`, 'output.color'],
+  [`${PREFIX}OUTPUT_CONTEXT_BUFFER`, 'output.contextBuffer'],
+];
+
+/**
+ * Return the list of `STBL_REGENT_*` env var names that are currently
+ * set in `process.env`. Order matches `ENV_VAR_TO_PATH` so callers can
+ * correlate with config paths deterministically.
+ */
+export function collectEnvVarNames(): readonly string[] {
+  const names: string[] = [];
+  for (const [envName] of ENV_VAR_TO_PATH) {
+    if (readEnv(envName) !== undefined) {
+      names.push(envName);
+    }
+  }
+  return names;
+}

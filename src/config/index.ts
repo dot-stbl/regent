@@ -14,8 +14,12 @@
 // not-found, validation-failed, and IO errors.
 
 import { defaultConfig } from './sources/defaults.js';
-import { loadProjectConfig, loadGlobalConfig, loadLocalConfig } from './sources/file.js';
-import { buildEnvConfig, loadDotEnv } from './sources/env.js';
+import {
+  loadProjectConfigLayer,
+  loadGlobalConfigLayer,
+  loadLocalConfigLayer,
+} from './sources/file.js';
+import { buildEnvConfig, loadDotEnv, collectEnvVarNames } from './sources/env.js';
 import { buildArgsConfig, type CliArgs } from './sources/args.js';
 import { mergeConfigs } from './merge.js';
 import type { RegentConfig } from './schema.js';
@@ -39,16 +43,47 @@ export type LoadConfigError =
   | { kind: 'validation'; layer: string; source: string; message: string }
   | { kind: 'io'; layer: string; source: string; message: string };
 
+/**
+ * Per-layer provenance for the merged config. Each layer entry is
+ * either a no-op (not loaded) or a structured record describing where
+ * the layer came from. The legacy string-marker fields
+ * (`defaults/global/project/local/env/args`) are kept for backward
+ * compatibility — new consumers should use the structured `layers[]`.
+ */
+export interface LayerSources {
+  readonly defaults: boolean;
+  /** @deprecated use `layers[].path` when present. */
+  readonly global: string | null;
+  /** @deprecated use `layers[].path` when present. */
+  readonly project: string | null;
+  /** @deprecated use `layers[].path` when present. */
+  readonly local: string | null;
+  /** @deprecated use `layers[].envVars` when present. */
+  readonly env: boolean;
+  /** @deprecated use `layers[].args` when present. */
+  readonly args: boolean;
+}
+
+export interface ConfigLayerEntry {
+  /** Stable layer id — used by `regent config layers`. */
+  readonly id: 'defaults' | 'global' | 'project' | 'local' | 'env' | 'args';
+  /** True when this layer contributed to the merged config. */
+  readonly loaded: boolean;
+  /** Absolute file path for file-sourced layers; null otherwise. */
+  readonly path: string | null;
+  /** Env-var names that contributed (env layer only). */
+  readonly envVars: readonly string[];
+  /** CLI-arg names that contributed (args layer only). */
+  readonly args: readonly string[];
+  /** The layer's per-layer config (defaults always present; others null if not loaded). */
+  readonly config: ResolvedConfig | null;
+}
+
 export interface LoadConfigResult {
   readonly config: ResolvedConfig;
-  readonly sources: {
-    readonly defaults: boolean;
-    readonly global: string | null;
-    readonly project: string | null;
-    readonly local: string | null;
-    readonly env: boolean;
-    readonly args: boolean;
-  };
+  readonly sources: LayerSources;
+  /** Per-layer provenance in precedence order (low → high). */
+  readonly layers: readonly ConfigLayerEntry[];
   readonly warnings: readonly string[];
 }
 
@@ -66,54 +101,57 @@ export async function loadConfig(
   const warnings: string[] = [];
 
   const defaultsLayer = defaultConfig();
-  let globalConfig: ResolvedConfig | null = null;
-  let projectConfig: ResolvedConfig | null = null;
-  let localConfig: ResolvedConfig | null = null;
-  let envConfig: ResolvedConfig | null = null;
-  let argsConfig: ResolvedConfig | null = null;
+  let globalLayer: { config: ResolvedConfig; path: string | null } | null = null;
+  let projectLayer: { config: ResolvedConfig; path: string | null } | null = null;
+  let localLayer: { config: ResolvedConfig; path: string | null } | null = null;
+  let envLayer: ResolvedConfig | null = null;
+  let argsLayer: ResolvedConfig | null = null;
 
   const layers: ResolvedConfig[] = [defaultsLayer];
 
   try {
-    globalConfig = await loadGlobalConfig(cwd);
+    const result = await loadGlobalConfigLayer(cwd);
+    if (result) {
+      globalLayer = { config: result.config, path: result.path };
+      layers.push(result.config);
+    }
   } catch (err) {
     warnings.push(`global config: ${(err as Error).message}`);
   }
-  if (globalConfig) {
-    layers.push(globalConfig);
-  }
 
   try {
-    projectConfig = await loadProjectConfig(cwd);
+    const result = await loadProjectConfigLayer(cwd);
+    if (result) {
+      projectLayer = { config: result.config, path: result.path };
+      layers.push(result.config);
+    }
   } catch (err) {
     warnings.push(`project config: ${(err as Error).message}`);
   }
-  if (projectConfig) {
-    layers.push(projectConfig);
-  }
 
   try {
-    localConfig = await loadLocalConfig(cwd);
+    const result = await loadLocalConfigLayer(cwd);
+    if (result) {
+      localLayer = { config: result.config, path: result.path };
+      layers.push(result.config);
+    }
   } catch (err) {
     warnings.push(`local config: ${(err as Error).message}`);
   }
-  if (localConfig) {
-    layers.push(localConfig);
-  }
 
   try {
-    envConfig = buildEnvConfig();
+    envLayer = buildEnvConfig();
   } catch (err) {
     warnings.push(`env config: ${(err as Error).message}`);
   }
-  if (envConfig) {
-    layers.push(envConfig);
+  if (envLayer) {
+    layers.push(envLayer);
   }
 
   if (args) {
-    argsConfig = buildArgsConfig(args);
-    if (argsConfig) {
-      layers.push(argsConfig);
+    argsLayer = buildArgsConfig(args);
+    if (argsLayer) {
+      layers.push(argsLayer);
     }
   }
 
@@ -132,16 +170,62 @@ export async function loadConfig(
     warnings.push(`exclude group '@${name}' overrides a built-in`);
   }
 
+  const envVars = collectEnvVarNames();
+  const layerEntries: ConfigLayerEntry[] = [
+    { id: 'defaults', loaded: true, path: null, envVars: [], args: [], config: defaultsLayer },
+    {
+      id: 'global',
+      loaded: globalLayer !== null,
+      path: globalLayer?.path ?? null,
+      envVars: [],
+      args: [],
+      config: globalLayer?.config ?? null,
+    },
+    {
+      id: 'project',
+      loaded: projectLayer !== null,
+      path: projectLayer?.path ?? null,
+      envVars: [],
+      args: [],
+      config: projectLayer?.config ?? null,
+    },
+    {
+      id: 'local',
+      loaded: localLayer !== null,
+      path: localLayer?.path ?? null,
+      envVars: [],
+      args: [],
+      config: localLayer?.config ?? null,
+    },
+    {
+      id: 'env',
+      loaded: envLayer !== null,
+      path: null,
+      envVars,
+      args: [],
+      config: envLayer,
+    },
+    {
+      id: 'args',
+      loaded: argsLayer !== null,
+      path: null,
+      envVars: [],
+      args: args ? collectArgNames(args) : [],
+      config: argsLayer,
+    },
+  ];
+
   return {
     config: merged,
     sources: {
       defaults: true,
-      global: globalConfig ? '<loaded>' : null,
-      project: projectConfig ? '<loaded>' : null,
-      local: localConfig ? '<loaded>' : null,
-      env: envConfig !== null,
-      args: argsConfig !== null,
+      global: globalLayer ? (globalLayer.path ?? '<loaded>') : null,
+      project: projectLayer ? (projectLayer.path ?? '<loaded>') : null,
+      local: localLayer ? (localLayer.path ?? '<loaded>') : null,
+      env: envLayer !== null,
+      args: argsLayer !== null,
     },
+    layers: layerEntries,
     warnings,
   };
 }
@@ -151,6 +235,20 @@ import { BUILTIN_EXCLUDE_GROUPS } from './groups.js';
 const BUILTIN_BY_NAME: ReadonlyMap<string, readonly string[]> = new Map(
   BUILTIN_EXCLUDE_GROUPS.map((g) => [g.name, g.globs] as const),
 );
+
+/**
+ * List the CLI-arg keys that contributed to the args layer. Used by
+ * `regent config layers` to display which flags are active in this run.
+ */
+function collectArgNames(args: CliArgs): readonly string[] {
+  const names: string[] = [];
+  if (args.logLevel !== undefined) names.push('--log-level');
+  if (args.logFormat !== undefined) names.push('--log-format');
+  if (args.color !== undefined) names.push('--no-color / --color');
+  if (args.cache !== undefined) names.push('--no-cache');
+  if (args.contextBuffer !== undefined) names.push('--context-buffer');
+  return names;
+}
 
 function arraysEqual(a: readonly string[], b: readonly string[]): boolean {
   if (a.length !== b.length) {
