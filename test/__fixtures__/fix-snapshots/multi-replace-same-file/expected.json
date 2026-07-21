@@ -1,0 +1,28 @@
+{
+  "applied": [
+    {
+      "ruleId": "snap.hello",
+      "file": "<cwd>/in.ts",
+      "range": {
+        "start": 0,
+        "end": 5
+      },
+      "title": "snap.hello",
+      "before": "hello",
+      "after": "HELLO"
+    },
+    {
+      "ruleId": "snap.world",
+      "file": "<cwd>/in.ts",
+      "range": {
+        "start": 6,
+        "end": 11
+      },
+      "title": "snap.world",
+      "before": "world",
+      "after": "WORLD"
+    }
+  ],
+  "suggested": [],
+  "deferred": []
+}

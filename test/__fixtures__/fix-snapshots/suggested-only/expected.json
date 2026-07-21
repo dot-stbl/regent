@@ -1,0 +1,22 @@
+{
+  "applied": [],
+  "suggested": [
+    {
+      "ruleId": "snap.suggested",
+      "file": "<cwd>/in.ts",
+      "range": {
+        "start": 0,
+        "end": 5
+      },
+      "title": "snap.suggested",
+      "guidance": null,
+      "proposedEdit": {
+        "start": 0,
+        "end": 5,
+        "replacement": "HELLO"
+      },
+      "context": []
+    }
+  ],
+  "deferred": []
+}

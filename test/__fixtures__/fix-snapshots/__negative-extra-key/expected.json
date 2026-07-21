@@ -1,0 +1,15 @@
+{
+  "applied": [
+    {
+      "ruleId": "snap.neg",
+      "file": "<cwd>",
+      "range": { "start": 0, "end": 5 },
+      "title": "snap.neg",
+      "before": "hello",
+      "after": "HELLO"
+    }
+  ],
+  "suggested": [],
+  "deferred": [],
+  "cwd": "/tmp/should-not-be-here"
+}
