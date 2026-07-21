@@ -96,6 +96,11 @@ program
   .option('--severity <level>', 'override minimum severity in output')
   .option('--no-color', 'disable ANSI color output')
   .option('--no-review', 'hide the review-candidates section')
+  .option(
+    '--concurrency <n>',
+    'max in-flight file scans (overrides runner.concurrency / STBL_REGENT_RUNNER_CONCURRENCY)',
+    (value) => Number.parseInt(value, 10),
+  )
   .action(async (options) => {
     const exitCode = await runCheck(options);
     process.exit(exitCode);
@@ -296,7 +301,7 @@ async function runCheck(options: CheckOptions): Promise<number> {
 
   let loadedRules;
   try {
-    loadedRules = await loadRules({ repoRoot: cwd });
+    loadedRules = await loadRules({ repoRoot: cwd, args: cliArgsFromOptions(options) });
   } catch (err) {
     getLogger().error({ err: { message: (err as Error).message } }, 'failed to load rules');
     return 1;
@@ -330,6 +335,7 @@ async function runCheck(options: CheckOptions): Promise<number> {
   const result = await runRules(rules, scope, {
     acceptList: loadedRules.acceptList,
     contextBuffer: loadedRules.resolvedConfig.output.contextBuffer,
+    concurrency: loadedRules.resolvedConfig.runner.concurrency,
   });
   let findings = result.findings;
 
@@ -394,7 +400,10 @@ function computeExitCode(findings: readonly Finding[], exitOn: Severity): number
 
 async function runReview(options: ReviewOptions): Promise<number> {
   const cwd = process.cwd();
-  const loaded = await loadRules({ repoRoot: cwd });
+  const loaded = await loadRules({
+    repoRoot: cwd,
+    args: cliArgsFromOptions({ ...options, review: undefined }),
+  });
 
   const scope: RunnerScope = {
     cwd,
@@ -413,6 +422,7 @@ async function runReview(options: ReviewOptions): Promise<number> {
   const result = await runRules(loaded.rules, scope, {
     acceptList: loaded.acceptList,
     contextBuffer: loaded.resolvedConfig.output.contextBuffer,
+    concurrency: loaded.resolvedConfig.runner.concurrency,
   });
 
   // Strip violations from review output — review only shows pending
@@ -812,6 +822,38 @@ function shouldUseColor(options: { color?: unknown }): boolean {
   return pc.isColorSupported;
 }
 
+/**
+ * Translate commander-resolved CLI options into the `CliArgs` overlay
+ * the loader's `loadConfig` understands. Only the fields the loader
+ * actually reads are mapped; everything else stays out.
+ */
+function cliArgsFromOptions(
+  options: CheckOptions,
+): {
+  logLevel?: string;
+  logFormat?: string;
+  color?: boolean;
+  cache?: boolean;
+  contextBuffer?: number;
+  concurrency?: number;
+} {
+  const out: {
+    logLevel?: string;
+    logFormat?: string;
+    color?: boolean;
+    cache?: boolean;
+    contextBuffer?: number;
+    concurrency?: number;
+  } = {};
+  if (options.color !== undefined) {
+    out.color = options.color;
+  }
+  if (options.concurrency !== undefined) {
+    out.concurrency = options.concurrency;
+  }
+  return out;
+}
+
 function formatOrigin(o: { kind: string; [k: string]: unknown }): string {
   switch (o.kind) {
     case 'preset':
@@ -872,6 +914,7 @@ interface CheckOptions {
   severity?: string;
   color?: boolean;
   review?: boolean;
+  concurrency?: number;
 }
 
 interface ReviewOptions {

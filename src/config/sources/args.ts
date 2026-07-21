@@ -7,6 +7,7 @@
 //   --no-color               → output.color = false
 //   --no-cache               → cache.enabled = false
 //   --context-buffer <n>     → output.contextBuffer
+//   --concurrency <n>        → runner.concurrency
 //
 // `--no-*` flags are produced by commander as `opts[key] = false` on
 // the option object. We handle them as the inverse of their positive
@@ -21,6 +22,7 @@ export interface CliArgs {
   readonly color?: boolean;
   readonly cache?: boolean;
   readonly contextBuffer?: number;
+  readonly concurrency?: number;
 }
 
 /**
@@ -49,10 +51,16 @@ export function buildArgsConfig(args: CliArgs): RegentConfig | null {
     output.contextBuffer = args.contextBuffer;
   }
 
+  const runner: { concurrency?: number } = {};
+  if (args.concurrency !== undefined) {
+    runner.concurrency = args.concurrency;
+  }
+
   const hasAny =
     Object.keys(cache).length > 0 ||
     Object.keys(log).length > 0 ||
-    Object.keys(output).length > 0;
+    Object.keys(output).length > 0 ||
+    Object.keys(runner).length > 0;
   if (!hasAny) {
     return null;
   }
@@ -71,6 +79,7 @@ export function buildArgsConfig(args: CliArgs): RegentConfig | null {
     cache,
     log,
     output,
+    runner,
   };
   const parsed = safeParseConfig(candidate);
   if (!parsed.ok) {

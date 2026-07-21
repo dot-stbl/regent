@@ -57,9 +57,10 @@ export function mergeConfigs(layers: readonly RegentConfig[]): RegentConfig {
     excludeGroupsByName.set(g.name, g);
   }
 
-  let cache: { enabled: boolean; maxBytes: number } = {
+  let cache: { enabled: boolean; maxBytes: number; maxAge: number } = {
     enabled: true,
     maxBytes: 100 * 1024 * 1024,
+    maxAge: 7 * 24 * 60 * 60 * 1000,
   };
   let log: { level: 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal'; format: 'text' | 'json' } = {
     level: 'info',
@@ -68,6 +69,9 @@ export function mergeConfigs(layers: readonly RegentConfig[]): RegentConfig {
   let output: { color: boolean; contextBuffer: number } = {
     color: true,
     contextBuffer: 3,
+  };
+  let runner: { concurrency: number } = {
+    concurrency: 4,
   };
 
   for (const layer of layers) {
@@ -156,6 +160,7 @@ export function mergeConfigs(layers: readonly RegentConfig[]): RegentConfig {
     cache = { ...cache, ...layer.cache };
     log = { ...log, ...layer.log };
     output = { ...output, ...layer.output };
+    runner = { ...runner, ...layer.runner };
   }
 
   const excludeGroups: Record<string, readonly string[]> = {};
@@ -177,6 +182,7 @@ export function mergeConfigs(layers: readonly RegentConfig[]): RegentConfig {
     cache,
     log,
     output,
+    runner,
   };
 }
 

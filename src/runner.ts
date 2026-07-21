@@ -51,6 +51,9 @@ import type {
 
 const MAX_FILE_BYTES = 1_000_000; // 1MB cap per file
 
+/** Default in-flight file scans — matches libuv's default threadpool size. */
+const DEFAULT_CONCURRENCY = 4;
+
 export interface RunOptions {
   /** Accept-list from the loader; silences matching pending findings. */
   readonly acceptList?: readonly AcceptEntry[];
@@ -64,6 +67,17 @@ export interface RunOptions {
    * behaviour for callers that don't load config.
    */
   readonly contextBuffer?: number;
+
+  /**
+   * Maximum number of file scans in flight. Each scan does an async
+   * `readFile` plus per-line RE2 work; the libuv default threadpool
+   * size is 4, which is why that's the default. Override via
+   * `runner.concurrency` (config), `STBL_REGENT_RUNNER_CONCURRENCY`
+   * (env), or `--concurrency N` (CLI).
+   *
+   * Clamped to a minimum of 1.
+   */
+  readonly concurrency?: number;
 }
 
 export async function runRules(
@@ -101,8 +115,11 @@ export async function runRules(
   let scannedFiles = 0;
   const acceptList = options.acceptList ?? [];
 
-  const scanResults = await Promise.all(
-    files.map((file) => scanFile(file, compiled, acceptList, contextBuffer)),
+  const concurrency = Math.max(1, options.concurrency ?? DEFAULT_CONCURRENCY);
+  const scanResults = await runWithConcurrency(
+    files,
+    concurrency,
+    (file) => scanFile(file, compiled, acceptList, contextBuffer),
   );
   for (const r of scanResults) {
     if (r === null) {
@@ -117,6 +134,45 @@ export async function runRules(
     rules,
     scannedFiles,
   };
+}
+
+/**
+ * Run an async mapping over `items` with at most `limit` tasks in
+ * flight. Order of the result array matches the input order — handy
+ * when callers pair positions to original items.
+ *
+ * Hand-rolled (no `p-limit` / `p-queue` dep). The implementation is a
+ * tiny FIFO queue: kick off the first `limit` tasks, and every time a
+ * task finishes, start the next one from the queue. Errors propagate
+ * through `Promise.all` so a single rejection fails the whole batch —
+ * matches the previous `Promise.all(files.map(...))` semantics.
+ */
+export async function runWithConcurrency<T, R>(
+  items: readonly T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  const effectiveLimit = Math.max(1, Math.min(limit, items.length));
+  let nextIndex = 0;
+
+  const worker = async (): Promise<void> => {
+    while (true) {
+      const i = nextIndex++;
+      if (i >= items.length) {
+        return;
+      }
+      const item = items[i]!;
+      results[i] = await fn(item, i);
+    }
+  };
+
+  const workers: Promise<void>[] = [];
+  for (let w = 0; w < effectiveLimit; w++) {
+    workers.push(worker());
+  }
+  await Promise.all(workers);
+  return results;
 }
 
 /**
@@ -291,8 +347,11 @@ interface CompiledRuleWithPattern {
  * unreadable or oversized — caller increments the scanned counter only
  * for successful reads.
  *
- * Phase 6: per-file work runs in parallel via `Promise.all(files.map(scanFile))`
- * — I/O concurrency uses Node's libuv threadpool.
+ * Phase 6: per-file work runs in parallel via a bounded pool
+ * (`runWithConcurrency`) so callers can cap in-flight scans via
+ * `--concurrency N` (CLI) / `runner.concurrency` (config) /
+ * `STBL_REGENT_RUNNER_CONCURRENCY` (env). Default: 4 (libuv
+ * threadpool size).
  */
 async function scanFile(
   file: string,
