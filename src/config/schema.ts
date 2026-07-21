@@ -67,6 +67,11 @@ const RuleFixReplaceSchema = z
     guidance: z.string().optional(),
     template: z.string(),
     targetGroup: z.union([z.number(), z.string()]).optional(),
+    // Phase 4 fixpoint opt-in: when true, the rule participates in
+    // applyFixes' per-file re-scan after edits are applied. Default
+    // false — most rules are single-pass. See RuleFixBase.converges
+    // in src/types.ts.
+    converges: z.boolean().optional(),
   })
   .strict();
 
@@ -77,6 +82,7 @@ const RuleFixDeleteLineSchema = z
     title: z.string().min(1),
     guidance: z.string().optional(),
     alsoDeleteMatching: z.string().optional(),
+    converges: z.boolean().optional(),
   })
   .strict();
 
@@ -98,6 +104,7 @@ const RuleFixFunctionSchema = z
     // The loader runtime-checks that the field is a function before
     // accepting the rule (see loader `validateFixRuntime`).
     apply: z.unknown(),
+    converges: z.boolean().optional(),
   })
   .strict();
 
@@ -107,6 +114,7 @@ const RuleFixGuidanceOnlySchema = z
     safety: FixSafetySchema,
     title: z.string().min(1),
     guidance: z.string().optional(),
+    converges: z.boolean().optional(),
   })
   .strict();
 

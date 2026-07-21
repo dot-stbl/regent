@@ -1,5 +1,5 @@
 /**
- * fixer.ts — the applyFixes engine (Phase 2 of the fix-mode epic, #7).
+ * fixer.ts — the applyFixes engine (Phase 2 + 4 of the fix-mode epic, #7).
  *
  * Reads each changed file once, computes a per-finding edit from
  * the rule's `fix` attachment, applies edits in a single right-to-left
@@ -9,14 +9,23 @@
  *
  * MVP scope (P2):
  * - `replace` (template-driven) and `delete-line` only. `function`
- *   and `guidance-only` are P5 / P7 — they're surfaced via the
- *   `suggested` array instead of being applied.
- * - Single-pass per file. Fixpoint + idempotence guard lands in P4.
+ *   and `guidance-only` are surfaced via the `suggested` array
+ *   instead of being applied.
  * - Per-rule `apply: replace` and `delete-line` only, no template
  *   function-form yet (P7).
  * - Right-to-left application: edits sorted by `start` ascending,
  *   applied from highest offset downward so earlier offsets stay
  *   valid.
+ *
+ * Phase 4 (this commit) adds the **fixpoint loop** on top of P2:
+ * - Per-rule opt-in `converges: true` flag on `RuleFixSpec` — only
+ *   rules that explicitly opt in participate in the re-scan after
+ *   pass 1 (most rules are single-pass).
+ * - `ApplyFixesOptions.maxPasses` (default 5, hard cap 20) bounds
+ *   the re-scan iterations; exceeding it throws
+ *   `ApplyFixesConvergenceError` carrying per-file stats.
+ * - `ApplyFixesResult.passes` reports the iteration count actually
+ *   performed (1 = single pass; > 1 = fixpoint fired).
  *
  * Pure functions over `(content, edits)`; the file I/O is
  * isolated to `applyFixes` itself.
@@ -24,6 +33,8 @@
 
 import { readFile, writeFile } from 'node:fs/promises';
 
+import { detectFile } from './runner.js';
+import type { CompiledRule } from './types.js';
 import type {
   Finding,
   Match,
@@ -34,6 +45,10 @@ import type {
   RuleFixSpec,
   RuleSpec,
 } from './types.js';
+
+/** Default + hard cap for the fixpoint iteration budget (Phase 4, #7). */
+export const APPLY_FIXES_DEFAULT_MAX_PASSES = 5;
+export const APPLY_FIXES_MAX_PASSES_CAP = 20;
 
 export interface ApplyFixesOptions {
   readonly cwd: string;
@@ -47,6 +62,35 @@ export interface ApplyFixesOptions {
    * `function`-kind (P7) and is reserved for `--unsafe` invocation.
    */
   readonly lane?: 'safe' | 'all';
+  /**
+   * Maximum fixpoint iterations (Phase 4 of #7). The engine re-runs
+   * detection against the post-edit content of each affected file
+   * after each pass, and re-applies any new findings for rules that
+   * opted in via `RuleFixSpec.converges: true`. The loop stops when
+   * a pass produces no edits, when no converging findings remain,
+   * or when this cap is reached.
+   *
+   * Default: 5. Hard cap: 20 (clamped — values above are silently
+   * lowered to 20 to bound memory + CPU). Pass `1` to disable the
+   * fixpoint entirely (single-pass semantics).
+   *
+   * Throws `ApplyFixesConvergenceError` when the cap is reached with
+   * converging findings still pending.
+   */
+  readonly maxPasses?: number;
+  /**
+   * Per-file accept-list for the fixpoint re-scan. Defaults to `[]`
+   * (no accept-list). The initial detection's accept-list is applied
+   * by the runner before findings reach `applyFixes`; this field is
+   * the re-scan's view so the same triage repeats consistently.
+   */
+  readonly acceptList?: readonly { readonly ruleId: string; readonly path: string; readonly line?: number; readonly reason: string }[];
+  /**
+   * Lines of context included before/after each match in the
+   * fixpoint re-scan's findings. Defaults to `3` (the runner's
+   * `DEFAULT_CONTEXT_BUFFER`).
+   */
+  readonly contextBuffer?: number;
 }
 
 export interface AppliedEdit {
@@ -81,12 +125,63 @@ export interface ApplyFixesResult {
   readonly deferred: readonly DeferredEdit[];
   readonly suggested: readonly SuggestedEdit[];
   readonly unifiedDiff: string;
+  /**
+   * Number of fixpoint iterations actually performed. `1` means the
+   * engine ran the initial pass and stopped (no re-scan needed);
+   * `> 1` means at least one converging rule produced chained
+   * edits that were re-applied. Surfaced by the CLI for visibility
+   * — a non-trivial `passes` value means the loop did real work.
+   */
+  readonly passes: number;
+}
+
+/**
+ * Thrown when `applyFixes` exhausts the `maxPasses` budget with
+ * converging findings still pending (Phase 4 of #7). The
+ * `stats` field carries the per-file diagnostic so the CLI can
+ * pinpoint which rule + file is looping.
+ *
+ * The error message includes the stats inline for log-friendliness;
+ * programmatic callers should read `stats` directly.
+ */
+export class ApplyFixesConvergenceError extends Error {
+  readonly stats: {
+    readonly file: string;
+    readonly ruleId: string;
+    readonly passCount: number;
+    readonly lastAppliedCount: number;
+  };
+
+  constructor(
+    message: string,
+    stats: {
+      readonly file: string;
+      readonly ruleId: string;
+      readonly passCount: number;
+      readonly lastAppliedCount: number;
+    },
+    options?: { readonly cause?: unknown },
+  ) {
+    super(message, options);
+    this.name = 'ApplyFixesConvergenceError';
+    this.stats = stats;
+  }
 }
 
 interface ApplyEditsResult {
   newContent: string;
   applied: { edit: RuleFixEdit; ruleId: string; title: string }[];
   deferredOverlap: { edit: RuleFixEdit; ruleId: string; title: string; start: number; end: number }[];
+}
+
+interface PassResult {
+  applied: AppliedEdit[];
+  deferred: DeferredEdit[];
+  suggested: SuggestedEdit[];
+  changedFiles: string[];
+  unifiedDiff: string;
+  /** Map of file → post-edit content (in-memory copy for the next pass's re-scan). */
+  updatedContent: Map<string, string>;
 }
 
 /**
@@ -287,19 +382,83 @@ function applyEditsToString(
 }
 
 /**
- * Top-level entry point. Read each affected file, compute + apply the
- * per-finding edits, write back. Returns the structured result.
+ * Collect the ruleIds of converging fixes among the supplied
+ * findings. The set is computed once from the *initial* findings and
+ * used as the membership filter for every subsequent pass: only
+ * rules whose fix carried `converges: true` participate in the
+ * fixpoint re-scan (rules that didn't opt in are single-pass).
  *
- * Per the AC, this is a single-pass engine (no fixpoint yet — P4). It
- * is also **deterministic** + **idempotent at the content level**:
- * running the same input twice produces the same output the second
- * time (no remaining matches after the first pass).
+ * Findings whose rule is missing from `rulesById` are skipped — they
+ * would be deferred as `no-fix-attached` anyway, so they're not
+ * part of the convergence set.
  */
-export async function applyFixes(
+function collectConvergingRuleIds(
+  _findings: readonly Finding[],
+  rulesById: ReadonlyMap<string, RuleSpec>,
+): Set<string> {
+  // The fixpoint needs every rule whose fix carries `converges: true`
+  // — not just the ones that produced the initial findings. A rule
+  // that didn't fire on pass 1 may fire on pass 2 if pass 1's edit
+  // introduced its pattern (e.g. `foo → Foo` introduces a new match
+  // for a rule matching `Foo`). Limiting the set to initial findings
+  // would silently disable those chained transformations.
+  const ids = new Set<string>();
+  for (const [id, spec] of rulesById) {
+    if (spec.fix?.converges === true) {
+      ids.add(id);
+    }
+  }
+  return ids;
+}
+
+/**
+ * Build the `CompiledRule[]` slice needed by `detectFile`'s re-scan
+ * for a given set of converging ruleIds. Looks each one up in
+ * `rulesById` and wraps it in a minimal `CompiledRule` (the runner
+ * only reads `spec` / `source` from the compile step's input — the
+ * `origin` is a placeholder).
+ *
+ * Missing ruleIds are silently dropped (a converging rule that the
+ * caller omitted from `rulesById` cannot re-fire; that would be a
+ * programmer error and the surface here is intentionally forgiving).
+ */
+function compileConvergingRules(
+  rulesById: ReadonlyMap<string, RuleSpec>,
+  convergingIds: ReadonlySet<string>,
+): CompiledRule[] {
+  const out: CompiledRule[] = [];
+  for (const id of convergingIds) {
+    const spec = rulesById.get(id);
+    if (spec === undefined) {
+      continue;
+    }
+    out.push({
+      spec,
+      source: spec.source ?? '<fixpoint>',
+      origin: { kind: 'repo', path: '<fixpoint>' },
+    });
+  }
+  return out;
+}
+
+/**
+ * Run a single pass of the fix engine. Reads each affected file
+ * (unless `contentOverrides` already supplies an in-memory copy from
+ * the previous pass), computes per-finding edits, applies them,
+ * writes back to disk (unless `dryRun`), and returns the per-file
+ * post-edit content so the fixpoint loop can feed it back into the
+ * next iteration without an extra disk read.
+ *
+ * Pure with respect to the fixpoint — this function knows nothing
+ * about iteration counts; the caller (`applyFixes`) decides whether
+ * to call it again.
+ */
+async function applyOnePass(
   findings: readonly Finding[],
   rulesById: ReadonlyMap<string, RuleSpec>,
   options: ApplyFixesOptions,
-): Promise<ApplyFixesResult> {
+  contentOverrides: ReadonlyMap<string, string>,
+): Promise<PassResult> {
   const dryRun = options.dryRun ?? false;
   const lane = options.lane ?? 'safe';
 
@@ -314,30 +473,38 @@ export async function applyFixes(
     byFile.set(f.path, list);
   }
 
-  // 2. For each file, read content, compute edits, apply.
   const applied: AppliedEdit[] = [];
   const deferred: DeferredEdit[] = [];
   const suggested: SuggestedEdit[] = [];
   const changedFiles: string[] = [];
   const diffPieces: string[] = [];
+  const updatedContent = new Map<string, string>();
 
   for (const [relPath, fileFindings] of byFile) {
     const absPath = relPath;
 
     let content: string;
-    try {
-      content = await readFile(absPath, 'utf8');
-    } catch {
-      // File unreadable; defer everything.
-      for (const f of fileFindings) {
-        deferred.push({
-          ruleId: f.ruleId,
-          file: relPath,
-          range: { start: 0, end: 0 },
-          reason: 'out-of-range',
-        });
+    const override = contentOverrides.get(absPath);
+    if (override !== undefined) {
+      // Fixpoint re-scan fed us the in-memory post-edit content
+      // from the previous pass — use it directly (skip the disk
+      // read and avoid stale-content races on slow filesystems).
+      content = override;
+    } else {
+      try {
+        content = await readFile(absPath, 'utf8');
+      } catch {
+        // File unreadable; defer everything.
+        for (const f of fileFindings) {
+          deferred.push({
+            ruleId: f.ruleId,
+            file: relPath,
+            range: { start: 0, end: 0 },
+            reason: 'out-of-range',
+          });
+        }
+        continue;
       }
-      continue;
     }
 
     // Build per-finding edits. Each finding has its own rule, so we
@@ -446,6 +613,10 @@ export async function applyFixes(
       changedFiles.push(relPath);
       // Generate a small diff entry: file path + count.
       diffPieces.push(`--- ${relPath} (${fileApplied.length} edit${fileApplied.length === 1 ? '' : 's'})`);
+      // Stash the post-edit content for the fixpoint re-scan. In
+      // dry-run mode this is the in-memory post-edit content; the
+      // next pass's re-scan will pick it up via `contentOverrides`.
+      updatedContent.set(relPath, newContent);
     }
 
     for (const { edit, ruleId, title } of fileApplied) {
@@ -475,6 +646,190 @@ export async function applyFixes(
     deferred,
     suggested,
     unifiedDiff: diffPieces.join('\n'),
+    updatedContent,
+  };
+}
+
+/**
+ * Top-level entry point. Read each affected file, compute + apply the
+ * per-finding edits, write back. With `maxPasses > 1` (default 5),
+ * re-scans each changed file against the same rule set after every
+ * pass and re-applies any new findings whose rule opted into the
+ * fixpoint via `RuleFixSpec.converges: true`.
+ *
+ * Idempotence contract (Phase 4 acceptance criterion #3): for any
+ * mechanically-idempotent converging rule (e.g. `delete-line`,
+ * template-driven `replace` whose template does not re-trigger
+ * detection), running `applyFixes` twice yields zero edits on the
+ * second pass — the post-fix-1 content is the same shape the engine
+ * would produce from a re-scan, so pass 2 finds nothing to do.
+ *
+ * Convergence: if the cap is reached with converging findings still
+ * pending, throws `ApplyFixesConvergenceError` carrying per-file
+ * stats (`{ file, ruleId, passCount, lastAppliedCount }`).
+ */
+export async function applyFixes(
+  findings: readonly Finding[],
+  rulesById: ReadonlyMap<string, RuleSpec>,
+  options: ApplyFixesOptions,
+): Promise<ApplyFixesResult> {
+  const rawMaxPasses = options.maxPasses ?? APPLY_FIXES_DEFAULT_MAX_PASSES;
+  const maxPasses = Math.min(
+    Math.max(1, Number.isFinite(rawMaxPasses) ? Math.floor(rawMaxPasses) : 1),
+    APPLY_FIXES_MAX_PASSES_CAP,
+  );
+
+  // 1. Compute the converging-rule set from the INITIAL findings.
+  //    Only rules that opted in (and produced at least one violation)
+  //    participate in the fixpoint — non-converging rules are
+  //    single-pass and their matches, if any survive pass 1, are left
+  //    as-is (the engine doesn't re-emit them on later passes).
+  const convergingRuleIds = collectConvergingRuleIds(findings, rulesById);
+  const convergingRules = convergingRuleIds.size === 0
+    ? []
+    : compileConvergingRules(rulesById, convergingRuleIds);
+
+  // 2. Accumulate across all passes.
+  const allApplied: AppliedEdit[] = [];
+  const allDeferred: DeferredEdit[] = [];
+  const allSuggested: SuggestedEdit[] = [];
+  const changedFiles: string[] = [];
+  const diffPieces: string[] = [];
+
+  let passCount = 0;
+  let pendingFindings: readonly Finding[] = findings;
+  const contentOverrides = new Map<string, string>();
+  let lastAppliedCount = 0;
+  let lastHotFile: string | null = null;
+  let lastHotRule: string | null = null;
+
+  while (true) {
+    // Hit the budget with work still pending → throw.
+    if (passCount >= maxPasses) {
+      if (lastAppliedCount > 0 || pendingFindings.length > 0) {
+        const hotFile = lastHotFile ?? pendingFindings[0]?.path ?? '<unknown>';
+        const hotRule = lastHotRule ?? pendingFindings[0]?.ruleId ?? '<unknown>';
+        throw new ApplyFixesConvergenceError(
+          `applyFixes did not converge within ${maxPasses} passes. ` +
+          `Last hot file: ${hotFile}, last hot rule: ${hotRule}, ` +
+          `applied in last pass: ${lastAppliedCount}, pending findings: ${pendingFindings.length}`,
+          {
+            file: hotFile,
+            ruleId: hotRule,
+            passCount,
+            lastAppliedCount,
+          },
+        );
+      }
+      break;
+    }
+
+    // Filter findings: pass 1 = all violations; pass > 1 = only
+    // converging rules. Non-converging rules don't re-fire even if
+    // their template re-introduces a match — the user opted them
+    // out by leaving `converges` unset.
+    const findingsForPass = passCount === 0
+      ? pendingFindings.filter((f) => f.status === 'violation')
+      : pendingFindings.filter((f) => convergingRuleIds.has(f.ruleId));
+
+    if (findingsForPass.length === 0) {
+      // Nothing to do — the loop terminates without incrementing
+      // `passCount`, so `passes` in the result reflects the work
+      // actually performed (0 for a no-op call, 1 for a single-pass
+      // fix, N for a fixpoint that fired N times).
+      break;
+    }
+    passCount++;
+
+    const passResult = await applyOnePass(
+      findingsForPass,
+      rulesById,
+      options,
+      contentOverrides,
+    );
+
+    lastAppliedCount = passResult.applied.length;
+    if (passResult.changedFiles.length > 0) {
+      lastHotFile = passResult.changedFiles[0] ?? null;
+    }
+    if (passResult.applied.length > 0) {
+      const first = passResult.applied[0]!;
+      lastHotRule = first.ruleId;
+    }
+
+    // Accumulate.
+    for (const e of passResult.applied) allApplied.push(e);
+    for (const d of passResult.deferred) allDeferred.push(d);
+    for (const s of passResult.suggested) allSuggested.push(s);
+    for (const f of passResult.changedFiles) {
+      if (!changedFiles.includes(f)) {
+        changedFiles.push(f);
+      }
+    }
+    for (const line of passResult.unifiedDiff.split('\n')) {
+      if (line.length > 0) {
+        diffPieces.push(line);
+      }
+    }
+
+    // Update in-memory content overrides for the next pass.
+    for (const [file, content] of passResult.updatedContent) {
+      contentOverrides.set(file, content);
+    }
+
+    // No progress → stop. The fixpoint terminates as soon as a pass
+    // produces zero applied edits OR no converging findings remain
+    // — either way, another iteration would do nothing useful.
+    if (passResult.applied.length === 0) {
+      break;
+    }
+
+    // If no rules opted into the fixpoint, there's nothing to re-scan
+    // — bail out before paying for the detection primitive.
+    if (convergingRules.length === 0) {
+      break;
+    }
+
+    // 3. Re-scan each changed file with the converging rule set.
+    //    AST findings produced here would have no fix attachment
+    //    (the fixer engine only handles regex-kind `RuleFixSpec`),
+    //    so they'd be deferred as `no-fix-attached` on the next
+    //    pass — safe to emit them.
+    const nextFindings: Finding[] = [];
+    for (const file of passResult.changedFiles) {
+      const content = contentOverrides.get(file);
+      if (content === undefined) {
+        continue;
+      }
+      const fileFindings = await detectFile(file, convergingRules, {
+        content,
+        ...(options.acceptList !== undefined ? { acceptList: options.acceptList } : {}),
+        ...(options.contextBuffer !== undefined ? { contextBuffer: options.contextBuffer } : {}),
+      });
+      for (const f of fileFindings) {
+        // Only re-emit findings whose rule opted in — that's the
+        // fixpoint's whole point. AST findings and accept-list
+        // matches are filtered out here even if `detectFile`
+        // produced them.
+        if (convergingRuleIds.has(f.ruleId)) {
+          nextFindings.push(f);
+        }
+      }
+    }
+
+    if (nextFindings.length === 0) {
+      break;
+    }
+    pendingFindings = nextFindings;
+  }
+
+  return {
+    applied: allApplied,
+    changedFiles,
+    deferred: allDeferred,
+    suggested: allSuggested,
+    unifiedDiff: diffPieces.join('\n'),
+    passes: passCount,
   };
 }
 

@@ -23,7 +23,7 @@ export {
   defineAstRule,
 } from './kinds/index.js';
 export { loadRules, type LoaderOptions, type LoaderRuleSet, type LoadedAcceptEntry } from './loader.js';
-export { runRules, runRulesStream, severityAtOrAbove, relativePath, type ScanEvent } from './runner.js';
+export { runRules, runRulesStream, severityAtOrAbove, relativePath, detectFile, type ScanEvent, type DetectFileOptions } from './runner.js';
 export { renderText, renderSummary, renderFinding } from './reporter/text.js';
 export { renderSarif } from './reporter/sarif.js';
 export { renderReview, renderReviewJson } from './reporter/review.js';
@@ -66,12 +66,15 @@ export type {
 export { validateFixSpec } from './types.js';
 export type { TransformRuleSpec } from './config/schema.js';
 
-// Fixer (P2 engine, surfaced via P3 `regent fix` CLI). Library callers
-// can drive the same engine programmatically via these exports; the CLI
-// is a thin wrapper that adds config loading, scope filters, and a
-// confirmation prompt.
+// Fixer (P2 engine, surfaced via P3 `regent fix` CLI, extended with
+// the P4 fixpoint loop). Library callers can drive the same engine
+// programmatically via these exports; the CLI is a thin wrapper that
+// adds config loading, scope filters, and a confirmation prompt.
 export {
   applyFixes,
+  APPLY_FIXES_DEFAULT_MAX_PASSES,
+  APPLY_FIXES_MAX_PASSES_CAP,
+  ApplyFixesConvergenceError,
   expandTemplate,
   type ApplyFixesOptions,
   type ApplyFixesResult,
