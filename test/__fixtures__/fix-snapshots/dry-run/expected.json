@@ -1,0 +1,17 @@
+{
+  "applied": [
+    {
+      "ruleId": "snap.replace-hello",
+      "file": "<cwd>/in.ts",
+      "range": {
+        "start": 0,
+        "end": 5
+      },
+      "title": "snap.replace-hello",
+      "before": "hello",
+      "after": "HELLO"
+    }
+  ],
+  "suggested": [],
+  "deferred": []
+}

@@ -1,0 +1,18 @@
+{
+  "applied": [],
+  "suggested": [
+    {
+      "ruleId": "snap.guidance",
+      "file": "<cwd>/in.ts",
+      "range": {
+        "start": 0,
+        "end": 0
+      },
+      "title": "snap.guidance",
+      "guidance": "Replace this TODO with a real implementation.",
+      "proposedEdit": null,
+      "context": []
+    }
+  ],
+  "deferred": []
+}

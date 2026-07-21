@@ -1,0 +1,27 @@
+{
+  "applied": [
+    {
+      "ruleId": "snap.first",
+      "file": "<cwd>/in.ts",
+      "range": {
+        "start": 0,
+        "end": 5
+      },
+      "title": "snap.first",
+      "before": "hello",
+      "after": "FIRST"
+    }
+  ],
+  "suggested": [],
+  "deferred": [
+    {
+      "ruleId": "snap.second",
+      "file": "<cwd>/in.ts",
+      "range": {
+        "start": 2,
+        "end": 6
+      },
+      "reason": "overlap with snap.first"
+    }
+  ]
+}

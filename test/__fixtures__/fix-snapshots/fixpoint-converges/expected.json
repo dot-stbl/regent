@@ -1,0 +1,17 @@
+{
+  "applied": [
+    {
+      "ruleId": "snap.chain.a",
+      "file": "<cwd>/in.ts",
+      "range": {
+        "start": 0,
+        "end": 3
+      },
+      "title": "snap.chain.a",
+      "before": "foo",
+      "after": "Foo"
+    }
+  ],
+  "suggested": [],
+  "deferred": []
+}

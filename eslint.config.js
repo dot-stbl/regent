@@ -23,6 +23,7 @@ export default [
       'assets/stbl/**',
       'coverage/**',
       'test/fixtures/**',
+      'test/__fixtures__/**',
     ],
   },
 ];
