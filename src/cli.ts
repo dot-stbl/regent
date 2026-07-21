@@ -29,7 +29,8 @@
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { createHash } from 'node:crypto';
+import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { Command } from 'commander';
 import pc from 'picocolors';
@@ -41,7 +42,7 @@ import { renderText, renderSummary, renderFinding } from './reporter/text.js';
 import { renderSarif } from './reporter/sarif.js';
 import { renderJsonFromRun } from './reporter/json.js';
 import { renderReview, renderReviewJson } from './reporter/review.js';
-import type { AcceptEntry, CompiledRule, Finding, RunnerScope, Severity } from './types.js';
+import type { AcceptEntry, CompiledRule, Finding, RunResult, RunnerScope, Severity } from './types.js';
 import type { CompiledAstRule } from './kinds/ast.js';
 import { renderBanner } from './cli/banner.js';
 import { loadLlmText } from './llm.js';
@@ -109,6 +110,7 @@ program
   .option('--no-color', 'disable ANSI color output')
   .option('--no-review', 'hide the review-candidates section')
   .option('--stream', 'stream findings live as they are found (text format) + progress indicator')
+  .option('--watch', 'watch the scope directory and re-run on change (chokidar + 100ms debounce)')
   .option(
     '--columns <n>',
     'wrap output to <n> visible columns (default: process.stdout.columns or 120)',
@@ -408,6 +410,25 @@ async function runCheck(options: CheckOptions): Promise<number> {
   const contextBuffer = loadedRules.resolvedConfig.output.contextBuffer;
   const concurrency = loadedRules.resolvedConfig.runner.concurrency;
 
+  // Watch path: run an initial scan, then re-run on every file change.
+  // Cache entries for changed files are invalidated between iterations
+  // so the next scan rebuilds them.
+  if (options.watch) {
+    return runCheckWatch({
+      cwd,
+      scope,
+      rules,
+      astRules,
+      loadedRules,
+      useColor,
+      hideReview,
+      severity: options.severity as Severity | undefined,
+      exitOn: (options.exitOn as Severity) ?? 'error',
+      columns,
+      format: (options.format as string) ?? 'text',
+    });
+  }
+
   // Streaming path (text only): print findings live + a progress indicator.
   if (options.stream && ((options.format as string | undefined) ?? 'text') === 'text') {
     return runCheckStream(rules, astRules, scope, {
@@ -474,6 +495,120 @@ async function runCheck(options: CheckOptions): Promise<number> {
   // the display-filtered `findings` — `--severity` / `--no-review` change
   // what is printed, never the exit code.
   return computeExitCode(result.findings, (options.exitOn as Severity) ?? 'error');
+}
+
+/**
+ * Watch-mode `check`: run an initial scan, then re-run on every
+ * debounced file change. Cache entries for the changed files are
+ * invalidated between iterations so the next scan rebuilds them.
+ * Ctrl-C / cancellation closes the watcher cleanly. Returns the
+ * exit code of the most recent iteration — `--watch` is intended as
+ * an inner-loop aid, not a CI gate.
+ */
+async function runCheckWatch(args: {
+  readonly cwd: string;
+  readonly scope: RunnerScope;
+  readonly rules: readonly CompiledRule[];
+  readonly astRules: readonly CompiledAstRule[];
+  readonly loadedRules: Awaited<ReturnType<typeof loadRules>>;
+  readonly useColor: boolean;
+  readonly hideReview: boolean;
+  readonly severity: Severity | undefined;
+  readonly exitOn: Severity;
+  readonly columns: number | undefined;
+  readonly format: string;
+}): Promise<number> {
+  const { cwd, scope, rules, astRules, loadedRules, useColor, hideReview, severity, exitOn, columns, format } = args;
+
+  const { DiskCache, defaultCachePath } = await import('./core/cache.js');
+  const { watchForChanges } = await import('./watcher.js');
+  const cachePath = defaultCachePath(cwd);
+  const cache = new DiskCache({ path: cachePath, maxBytes: 100 * 1024 * 1024 });
+  const contextBuffer = loadedRules.resolvedConfig.output.contextBuffer;
+  const concurrency = loadedRules.resolvedConfig.runner.concurrency;
+  const acceptList = loadedRules.acceptList;
+
+  let lastResult: RunResult | undefined;
+
+  const runOnce = async (): Promise<RunResult> => {
+    const result = await runRules(rules, scope, {
+      acceptList,
+      contextBuffer,
+      concurrency,
+      astRules,
+    });
+    lastResult = result;
+    return result;
+  };
+
+  const printResult = (result: RunResult): void => {
+    let findings = result.findings;
+    if (hideReview) {
+      findings = findings.filter((f) => f.status !== 'pending');
+    }
+    if (severity !== undefined) {
+      const minThreshold = severityRank(severity);
+      findings = findings.filter((f) => severityRank(f.severity) >= minThreshold);
+    }
+    let output: string;
+    if (format === 'sarif') {
+      output = renderSarif(findings, result.rules, { cwd });
+    } else if (format === 'json') {
+      output = renderJsonFromRun(
+        { findings, rules: result.rules, scannedFiles: result.scannedFiles },
+        { cwd },
+      );
+    } else {
+      output = renderText(findings, { cwd, useColor, hideReview, columns });
+      output += '\n' + renderSummary(findings, result.rules, useColor);
+    }
+    process.stdout.write('\u001b[2J\u001b[H'); // clear screen
+    process.stdout.write(output);
+    process.stderr.write(
+      `\n${useColor ? pc.dim('(watching — Ctrl-C to exit)') : '(watching — Ctrl-C to exit)'}\n`,
+    );
+  };
+
+  const invalidatePath = (relPath: string): void => {
+    const abs = join(cwd, relPath);
+    if (!existsSync(abs)) {
+      // File deleted: without a path-based index we leave stale
+      // entries in the cache; they'll be re-checked on next build.
+      // For MVP this is acceptable — unlink in watch mode is rare.
+      return;
+    }
+    const content = readFileSync(abs, 'utf8');
+    const fileHash = createHash('sha256').update(content).digest('hex');
+    cache.invalidate({ fileHash });
+  };
+
+  // Initial scan + render.
+  const initial = await runOnce();
+  printResult(initial);
+
+  const iter = watchForChanges({ cwd, debounceMs: 100 });
+  try {
+    for await (const ev of iter) {
+      if (ev.type === 'error') {
+        getLogger().warn({ err: { message: ev.err.message } }, 'watcher error');
+        continue;
+      }
+      if (ev.type === 'ready') {
+        continue;
+      }
+      if (ev.type === 'change' || ev.type === 'add' || ev.type === 'unlink') {
+        invalidatePath(ev.path);
+        const next = await runOnce();
+        printResult(next);
+      }
+    }
+  } finally {
+    await iter.return(undefined);
+    cache.flush();
+  }
+
+  const finalFindings = lastResult ? lastResult.findings : [];
+  return computeExitCode(finalFindings, exitOn);
 }
 
 /**
@@ -1035,15 +1170,15 @@ function shouldUseColor(options: { color?: unknown }): boolean {
 }
 
 /**
- * Resolve the column budget for the text reporter. Precedence:
- *
- *   1. `--columns <n>` (explicit CLI override for CI / pipe)
- *   2. `process.stdout.columns` (live TTY width)
- *   3. `120` (safe default when neither is available)
- *
- * Returns `undefined` when explicit `--no-wrap` semantics are wanted
- * (not used today — present for future-proofing).
- */
+   * Resolve the column budget for the text reporter. Precedence:
+   *
+   *   1. `--columns <n>` (explicit CLI override for CI / pipe)
+   *   2. `process.stdout.columns` (live TTY width)
+   *   3. `120` (safe default when neither is available)
+   *
+   * Returns `undefined` when explicit `--no-wrap` semantics are wanted
+   * (not used today — present for future-proofing).
+   */
 function resolveColumns(options: { columns?: unknown }): number | undefined {
   if (typeof options.columns === 'number' && Number.isFinite(options.columns)) {
     return options.columns;
@@ -1151,6 +1286,7 @@ interface CheckOptions {
   review?: boolean;
   concurrency?: number;
   stream?: boolean;
+  watch?: boolean;
   columns?: number;
 }
 
