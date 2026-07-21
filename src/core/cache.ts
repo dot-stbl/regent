@@ -8,6 +8,9 @@
 //   the entire cache (cheap and safe).
 //
 // LRU eviction when total bytes > maxBytes (config.cache.maxBytes).
+// TTL eviction on load: entries with `writtenAt` older than
+// `cache.maxAge` (default 7 days) are dropped silently — keeps stale
+// findings from a since-changed rule from haunting later runs.
 // Atomic write via tmp + rename (no torn files on crash).
 //
 // `--no-cache` bypass: read returns null, write returns silently.
@@ -58,6 +61,12 @@ export interface CacheStats {
 
 const RUNNER_VERSION = '0.2.0';
 
+// Re-export the header values so tests can construct a valid
+// on-disk cache file (see `test/cache-ttl.test.ts`).
+export const SCHEMA_VERSION_HEADER = SCHEMA_VERSION;
+export const RUNNER_VERSION_HEADER = RUNNER_VERSION;
+export const CACHE_FORMAT = FORMAT;
+
 function sha256(input: string): string {
   return createHash('sha256').update(input).digest('hex');
 }
@@ -70,6 +79,7 @@ function sha256(input: string): string {
 export class DiskCache implements CacheStore {
   private readonly path: string;
   private readonly maxBytes: number;
+  private readonly maxAge: number;
   private readonly enabled: boolean;
   private store = new Map<string, CacheEntry>();
   private header: CacheHeader = {
@@ -81,9 +91,12 @@ export class DiskCache implements CacheStore {
   private misses = 0;
   private writes = 0;
 
-  constructor(opts: { path: string; maxBytes: number; enabled?: boolean }) {
+  constructor(
+    opts: { path: string; maxBytes: number; maxAge?: number; enabled?: boolean },
+  ) {
     this.path = opts.path;
     this.maxBytes = opts.maxBytes;
+    this.maxAge = opts.maxAge ?? 7 * 24 * 60 * 60 * 1000;
     this.enabled = opts.enabled ?? true;
     if (this.enabled) {
       this.load();
@@ -175,7 +188,21 @@ export class DiskCache implements CacheStore {
         return; // runner bump — invalidate
       }
       if (parsed.entries) {
-        this.store = new Map(Object.entries(parsed.entries));
+        const cutoff = Date.now() - this.maxAge;
+        const next = new Map<string, CacheEntry>();
+        for (const [key, entry] of Object.entries(parsed.entries)) {
+          // Drop entries older than the TTL. Missing or future
+          // `writtenAt` are kept as-is (defensive — shouldn't happen
+          // in a cache we wrote, but be lenient on third-party data).
+          if (
+            typeof entry?.writtenAt === 'number'
+            && entry.writtenAt < cutoff
+          ) {
+            continue;
+          }
+          next.set(key, entry);
+        }
+        this.store = next;
       }
     } catch {
       // Corrupted cache — start fresh; next flush overwrites.

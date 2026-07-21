@@ -8,6 +8,7 @@
 //   - `excludeGroups`    — user-defined named exclude groups
 //   - `cache.enabled`    — toggle disk cache (`.regent/cache.json`)
 //   - `cache.maxBytes`   — LRU cap
+//   - `cache.maxAge`     — TTL in ms; stale entries dropped on load
 //   - `log.level`        — pino level
 //   - `log.format`       — `text` (TTY) or `json` (CI)
 //   - `output.color`     — ANSI colour for findings
@@ -150,9 +151,22 @@ export const RegentConfigSchema = z
       .object({
         enabled: z.boolean().default(true),
         maxBytes: z.number().int().positive().default(100 * 1024 * 1024),
+        /**
+         * Max age of a cache entry in milliseconds. Entries older than
+         * `now - maxAge` are dropped on `DiskCache` load. Default: 7
+         * days. A rule whose spec changes (or is removed) effectively
+         * gets a fresh window because its new `ruleHash` won't hit
+         * the cache, but stale entries can still linger and bloat the
+         * cache; this TTL bounds that.
+         */
+        maxAge: z.number().int().positive().default(7 * 24 * 60 * 60 * 1000),
       })
       .strict()
-      .default({ enabled: true, maxBytes: 100 * 1024 * 1024 }),
+      .default({
+        enabled: true,
+        maxBytes: 100 * 1024 * 1024,
+        maxAge: 7 * 24 * 60 * 60 * 1000,
+      }),
     log: z
       .object({
         level: LogLevelSchema.default('info'),
@@ -193,7 +207,7 @@ export const RegentConfigSchema = z
     },
     excludePaths: [],
     excludeGroups: {},
-    cache: { enabled: true, maxBytes: 100 * 1024 * 1024 },
+    cache: { enabled: true, maxBytes: 100 * 1024 * 1024, maxAge: 7 * 24 * 60 * 60 * 1000 },
     log: { level: 'info', format: 'text' },
     output: { color: true, contextBuffer: 3 },
     runner: { concurrency: 4 },

@@ -7,6 +7,7 @@
 //   STBL_REGENT_LOG_FORMAT           → log.format
 //   STBL_REGENT_CACHE_ENABLED        → cache.enabled
 //   STBL_REGENT_CACHE_MAX_BYTES      → cache.maxBytes
+//   STBL_REGENT_CACHE_MAX_AGE        → cache.maxAge (in SECONDS, converted to ms)
 //   STBL_REGENT_OUTPUT_COLOR         → output.color
 //   STBL_REGENT_OUTPUT_CONTEXT_BUFFER → output.contextBuffer
 //   STBL_REGENT_RUNNER_CONCURRENCY   → runner.concurrency
@@ -122,12 +123,21 @@ export function buildEnvConfig(): RegentConfig | null {
     log.format = readEnv(`${PREFIX}LOG_FORMAT`) as RegentConfig['log']['format'];
   }
 
-  const cache: { enabled?: boolean; maxBytes?: number } = {};
+  const cache: { enabled?: boolean; maxBytes?: number; maxAge?: number } = {};
   if (readEnv(`${PREFIX}CACHE_ENABLED`)) {
     cache.enabled = parseBool(`${PREFIX}CACHE_ENABLED`, readEnv(`${PREFIX}CACHE_ENABLED`)!);
   }
   if (readEnv(`${PREFIX}CACHE_MAX_BYTES`)) {
     cache.maxBytes = parseInt10(`${PREFIX}CACHE_MAX_BYTES`, readEnv(`${PREFIX}CACHE_MAX_BYTES`)!);
+  }
+  if (readEnv(`${PREFIX}CACHE_MAX_AGE`)) {
+    // Stored as seconds in env (matches container-friendly units);
+    // config field is milliseconds to stay consistent with `Date.now()`.
+    const seconds = parseInt10(
+      `${PREFIX}CACHE_MAX_AGE`,
+      readEnv(`${PREFIX}CACHE_MAX_AGE`)!,
+    );
+    cache.maxAge = seconds * 1000;
   }
 
   const output: { color?: boolean; contextBuffer?: number } = {};

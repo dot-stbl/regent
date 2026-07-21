@@ -18,7 +18,11 @@ export function defaultConfig(): RegentConfig {
     },
     excludePaths: [],
     excludeGroups: {},
-    cache: { enabled: true, maxBytes: 100 * 1024 * 1024 },
+    cache: {
+      enabled: true,
+      maxBytes: 100 * 1024 * 1024,
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    },
     log: { level: 'info', format: 'text' },
     output: { color: true, contextBuffer: 3 },
     runner: { concurrency: 4 },
