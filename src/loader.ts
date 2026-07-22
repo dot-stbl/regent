@@ -28,6 +28,10 @@ import type { AstRuleSpec, CompiledAstRule } from './kinds/ast.js';
 import type {
   CompiledTransformRule,
 } from './kinds/transform.js';
+import {
+  isNpmPackageSpec,
+  resolveExtendsNpmPackage,
+} from './loader/plugin-extends.js';
 import type { RuleFixSpec } from './types.js';
 import { validateFixSpec } from './types.js';
 import type {
@@ -557,11 +561,24 @@ async function resolveExtendsItem(
     return out;
   }
 
+  // Legacy: built-in presets removed in v0.2 — keep the early-error
+  // for backward-compatible failure messages. The prefix
+  // `@dot-stbl/regent/presets/<x>` is otherwise indistinguishable
+  // from an npm-shaped package spec, so we check it before the
+  // npm dispatch.
   if (item.startsWith('@dot-stbl/regent/presets/')) {
     throw new Error(
       `regent: built-in presets are removed in v0.2 — '${item}' is no longer valid. `
       + `Use \`regent llm examples <lang>\` to find curated rules, or \`extends: '<path-to-example>'\` to load them.`,
     );
+  }
+
+  // `extends: '@scope/name[/subpath]'` → npm package via dynamic
+  // import. Bare unprefixed `name` is intentionally not treated as
+  // npm — that's the historical preset-confusion footgun; users can
+  // disambiguate with a `./name` relative prefix for local paths.
+  if (isNpmPackageSpec(item)) {
+    return resolveExtendsNpmPackage(item, cwd, isDetectRuleSpec);
   }
 
   const abs = resolvePath(item, cwd);
