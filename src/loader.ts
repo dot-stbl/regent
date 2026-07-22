@@ -23,11 +23,15 @@ import { isAbsolute, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { loadConfig, type CliArgs, type ResolvedConfig } from './config/index.js';
+import type { z } from 'zod';
+
 import type { FixRuleSpec } from './config/schema.js';
 import type { AstRuleSpec, CompiledAstRule } from './kinds/ast.js';
 import type {
   CompiledTransformRule,
 } from './kinds/transform.js';
+import type { FormatRuleSpec } from './kinds/format.js';
+import type { DelegateRuleSpec } from './kinds/delegate.js';
 import {
   isNpmPackageSpec,
   resolveExtendsNpmPackage,
@@ -80,6 +84,22 @@ export interface LoaderRuleSet {
    * `rules.transform[]` inline entries.
    */
   readonly transformRules: readonly CompiledTransformRule[];
+  /**
+   * Format specs (#34) — file-mutating tools (prettier --write,
+   * dotnet format, eslint --fix, gofmt -w, ruff format). The
+   * runner shells out via `safeSpawn` with the safety blocklist
+   * enforced. `regent check` runs `detect`; `regent fix` runs
+   * `fix` (when present) plus a follow-up `detect` to surface the
+   * diff in the report. File-based discovery lands in 34c.
+   */
+  readonly formatSpecs: readonly FormatRuleSpec<z.ZodTypeAny>[];
+  /**
+   * Delegate specs (#34) — read-only analysis tools (eslint,
+   * ruff check, tsc --noEmit, golangci-lint run). Both `regent
+   * check` and `regent fix` run the `detect` argv. File-based
+   * discovery lands in 34c.
+   */
+  readonly delegateSpecs: readonly DelegateRuleSpec<z.ZodTypeAny>[];
   readonly acceptList: readonly LoadedAcceptEntry[];
   readonly resolvedConfig: ResolvedConfig;
   readonly totalSourceLayers: number;
@@ -333,11 +353,31 @@ export async function loadRules(options: LoaderOptions): Promise<LoaderRuleSet> 
     origin: 'repo' as const,
   }));
 
+  // #34 — read inline format / delegate specs from the merged
+  // config. The function-form `detect` / `fix` / `normalize` are
+  // preserved as-is; the runner (src/runner/delegate.ts)
+  // resolves them against the configured values per invocation.
+  // File-based discovery (`tools/audit/<name>.format.ts`,
+  // `tools/audit/<name>.delegate.ts`) lands in 34c.
+  //
+  // The config schema is `params: z.unknown().optional()` — the static
+  // schema validation can't introspect a runtime zod schema. The
+  // cast below widens the surface to the author-side `FormatRuleSpec`
+  // / `DelegateRuleSpec` types so `defineFormat` / `defineDelegate`
+  // callers keep their type safety at the `.regentrc.ts` authoring
+  // site. At runtime `params.parse(...)` either succeeds (the
+  // author supplied a real zod schema) or fails (the inline spec
+  // forgot one — surfaced as a synthetic finding in the runner).
+  const formatSpecs = (config.rules.format ?? []) as unknown as readonly FormatRuleSpec<z.ZodTypeAny>[];
+  const delegateSpecs = (config.rules.delegate ?? []) as unknown as readonly DelegateRuleSpec<z.ZodTypeAny>[];
+
   return {
     rules: allRules,
     parameterisedRules: parameterisedSnapshots,
     astRules,
     transformRules,
+    formatSpecs,
+    delegateSpecs,
     acceptList,
     resolvedConfig: config,
     totalSourceLayers:
