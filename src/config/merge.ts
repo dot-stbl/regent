@@ -181,6 +181,21 @@ export function mergeConfigs(layers: readonly RegentConfig[]): RegentConfig {
     excludeGroups[name] = group.globs;
   }
 
+  const configureMap = new Map<string, unknown>();
+  for (const layer of layers) {
+    // Defensive default — the schema supplies `{ configure: {} }`,
+    // but `mergeConfigs` is also called directly by tests with
+    // partial RegentConfig-like objects (see `config-merge.test.ts`).
+    const configure = layer.rules.configure ?? {};
+    for (const [ruleId, value] of Object.entries(configure)) {
+      // Per-id last-wins for configure (a higher-precedence layer
+      // overrides a lower one for the same rule id). The loader
+      // validates the shape against the rule's `params` schema at
+      // materialisation time.
+      configureMap.set(ruleId, value);
+    }
+  }
+
   return {
     rules: {
       detect: [...detectById.values()],
@@ -190,6 +205,7 @@ export function mergeConfigs(layers: readonly RegentConfig[]): RegentConfig {
       extends: extendsList,
       disable: [...disableSet],
       override: Object.fromEntries(overrideMap) as Record<string, { severity?: 'error' | 'warning' | 'suggestion'; message?: string }>,
+      configure: Object.fromEntries(configureMap) as Readonly<Record<string, unknown>>,
       accept: acceptList.map(({ origin: _origin, ...rest }) => rest),
     },
     excludePaths,

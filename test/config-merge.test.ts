@@ -21,6 +21,7 @@ function layer(partial: Partial<RegentConfig>): RegentConfig {
       extends: partial.rules?.extends ?? [],
       disable: partial.rules?.disable ?? [],
       override: partial.rules?.override ?? {},
+      configure: partial.rules?.configure ?? {},
       accept: partial.rules?.accept ?? [],
     },
     excludePaths: partial.excludePaths ?? def.excludePaths,

@@ -247,6 +247,20 @@ const RulesSectionSchema = z
       .default([]),
     disable: z.array(z.string().min(1)).readonly().default([]),
     override: z.record(z.string().min(1), RuleOverrideSchema).default({}),
+    /**
+     * Per-rule parameter values for `defineParameterizedRule`-shaped
+     * rules (#33). Each key is a rule id; each value is an opaque
+     * object validated against the rule's own `params` zod schema
+     * (see `src/loader/parameterize.ts`). Values that no rule
+     * references are an error at load time; default `{}` means
+     * "all parameterised rules resolve with their schema defaults".
+     *
+     * Strict on shape: unknown rule ids with non-empty values are
+     * rejected with a clear message; unknown rule ids with empty
+     * values are silently ignored (lets projects roll out the
+     * feature gradually without false-positive drift noise).
+     */
+    configure: z.record(z.string().min(1), z.unknown()).default({}),
     accept: z.array(AcceptEntrySchema).readonly().default([]),
   })
 .strict()
@@ -258,6 +272,7 @@ const RulesSectionSchema = z
     extends: [],
     disable: [],
     override: {},
+    configure: {},
     accept: [],
   });
 
@@ -324,6 +339,7 @@ export const RegentConfigSchema = z
       extends: [],
       disable: [],
       override: {},
+      configure: {},
       accept: [],
     },
     excludePaths: [],
