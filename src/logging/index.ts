@@ -104,6 +104,10 @@ export function scopedLogger(parent: Logger, scope: string): Logger {
  * still in CLOSING state (#79).
  *
  * Safe to call repeatedly; safe to call when no logger is active.
+ *
+ * For CLI shutdown that combines this with `process.exit()`, see
+ * `src/cli/exit.ts` (`flushAndExit`). That helper lives in the CLI
+ * layer because the 100 ms settle + exit is a CLI-only concern.
  */
 export async function flushLogger(): Promise<void> {
   if (activeStream) {
@@ -128,14 +132,4 @@ export async function flushLogger(): Promise<void> {
     setTimeout(finish, FLUSH_SETTLE_MS);
     setTimeout(finish, FLUSH_TIMEOUT_MS);
   });
-}
-
-/**
- * Flush the active logger, then exit with the given code. Use this
- * instead of `process.exit(code)` in CLI action handlers to avoid
- * the Windows shutdown crash (#79).
- */
-export async function flushAndExit(code: number): Promise<never> {
-  await flushLogger();
-  process.exit(code);
 }

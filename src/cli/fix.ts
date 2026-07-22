@@ -69,7 +69,7 @@ import type {
   RunnerScope,
 } from '../types.js';
 import { toV1Json } from '../reporter/fix-schema.js';
-import { flushAndExit } from '../logging/index.js';
+import { flushAndExit } from './exit.js';
 
 /** Per-AST-rule and per-transform rules are out of scope for the P3
  *  fixer engine (which only consumes `RuleSpec` + `Finding`); skip

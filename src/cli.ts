@@ -57,7 +57,8 @@ import {
   formatDiff,
   formatLayers,
 } from './config/inspect.js';
-import { createLogger, flushAndExit, type Logger } from './logging/index.js';
+import { flushAndExit } from './cli/exit.js';
+import { createLogger, type Logger } from './logging/index.js';
 import { isLogLevel, type LogLevel } from './logging/levels.js';
 
 const VERSION = '0.3.0';

@@ -56,7 +56,7 @@ describe('flushLogger', () => {
     await expect(flushLogger()).resolves.toBeUndefined();
   });
 
-  it('does not throw when called without an active logger', async () => {
+  it('is idempotent across multiple calls', async () => {
     // The export is process-shared; in a long-lived test process
     // the active logger from a previous test may still be set. The
     // contract is "never throws" — flushLogger must be idempotent.
