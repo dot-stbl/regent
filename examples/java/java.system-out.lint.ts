@@ -4,11 +4,12 @@
  * Stdout is debug noise — production paths should use a logger.
  */
 import { defineDetectRule } from '@dot-stbl/regent';
+import { patterns } from '@dot-stbl/regent';
 
 export default defineDetectRule({
   id: 'java.system-out',
   severity: 'warning',
-  pattern: '\\bSystem\\.(out|err)\\.print(ln)?\\s*\\(',
+  pattern: patterns.javaSystemOut().toRegex(),
   globs: ['**/*.java'],
   excludePaths: ['**/test/**', '**/tests/**'],
   message:

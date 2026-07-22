@@ -105,4 +105,46 @@ describe('patterns', () => {
       expect(re).not.toContain('undefined');
     }
   });
+
+  describe('Java helpers', () => {
+    it('javaPublicClass matches `public class Foo`', () => {
+      const re = patterns.javaPublicClass().toRegex();
+      expect(re).toContain('public');
+      expect(re).toContain('class');
+    });
+
+    it('javaSystemOut covers print/println/printf on both out and err', () => {
+      const re = patterns.javaSystemOut().toRegex();
+      expect(re).toContain('System');
+      expect(re).toContain('out');
+      expect(re).toContain('err');
+      expect(re).toContain('print');
+    });
+
+    it('javaOverride matches the @Override annotation', () => {
+      const re = patterns.javaOverride().toRegex();
+      expect(re).toContain('@Override');
+    });
+  });
+
+  describe('Go helpers', () => {
+    it('goPackageDecl anchors a `package foo` declaration', () => {
+      const re = patterns.goPackageDecl().toRegex();
+      expect(re.startsWith('^')).toBe(true);
+      expect(re).toContain('package');
+    });
+
+    it('goImport matches single-line `import "..."` forms', () => {
+      const re = patterns.goImport().toRegex();
+      expect(re.startsWith('^')).toBe(true);
+      expect(re).toContain('import');
+    });
+
+    it('goFuncMain matches `func main(...)` entry point', () => {
+      const re = patterns.goFuncMain().toRegex();
+      expect(re).toContain('func');
+      expect(re).toContain('main');
+      expect(re).toContain('(');
+    });
+  });
 });
