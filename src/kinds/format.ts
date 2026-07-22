@@ -100,11 +100,18 @@ export interface FormatRuleSpec<TParams extends z.ZodTypeAny> {
  * `defineParameterizedRule`: validates the spec at compile-time via
  * the `const T extends FormatRuleSpec<TParams>` constraint and
  * freezes the object so accidental mutation after definition fails
- * loudly.
+ * loudly. Also attaches a private `__kind` marker so the loader
+ * can distinguish format specs from delegate specs at runtime
+ * when both predicates match the same shape (a delegate spec is
+ * a format spec with `fix` absent — both expose `detect` +
+ * `normalize`; the marker breaks the tie).
  */
 export function defineFormat<
   const TParams extends z.ZodTypeAny,
   const T extends FormatRuleSpec<TParams>,
 >(spec: T): T {
-  return Object.freeze(spec) as T;
+  return Object.freeze({
+    __kind: 'format',
+    ...spec,
+  }) as T;
 }

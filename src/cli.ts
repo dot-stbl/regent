@@ -36,6 +36,8 @@ import { Command } from 'commander';
 import pc from 'picocolors';
 
 import { loadRules } from './loader.js';
+import { autodetectHints } from './loader/autodetect.js';
+import { runDelegates } from './runner/delegate.js';
 import { runRules, runRulesStream } from './runner.js';
 import { BUNDLES } from './bundles/index.js';
 import { renderText, renderSummary, renderFinding } from './reporter/text.js';
@@ -379,6 +381,20 @@ async function runCheck(options: CheckOptions): Promise<number> {
     return 1;
   }
 
+  // #34c — emit auto-detect hints (informational; never affects the
+  // report or exit code). Suppressed via `STBL_REGENT_AUTODETECT=off`
+  // for CI / scripted runs that want stable stderr. Hints go to
+  // stderr so the stdout report stays machine-parseable for
+  // `--format json` consumers.
+  for (const hint of autodetectHints(
+    cwd,
+    loadedRules.formatSpecs,
+    loadedRules.delegateSpecs,
+    loadedRules.resolvedConfig.rules.disable,
+  )) {
+    process.stderr.write(`${hint}\n`);
+  }
+
   let rules = loadedRules.rules;
 
   if (options.includeRules) {
@@ -459,6 +475,16 @@ async function runCheck(options: CheckOptions): Promise<number> {
     astRules,
   });
   let findings = result.findings;
+
+  // #34 — workspace-level delegate specs run after the per-file
+  // scan; their findings merge into the same report. The runner
+  // (src/runner/delegate.ts) enforces the safety blocklist and
+  // synthesises a failure finding when the tool crashes.
+  const delegateFindings = await runDelegates(
+    loadedRules.delegateSpecs,
+    loadedRules.resolvedConfig.rules.configure,
+  );
+  findings = [...findings, ...delegateFindings];
 
   // Violations-only flag (drop pending review)
   if (hideReview) {

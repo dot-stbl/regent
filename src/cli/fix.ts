@@ -61,6 +61,7 @@ import {
   type ApplyFixesResult,
 } from '../fixer.js';
 import { loadRules } from '../loader.js';
+import { runFormatFixes } from '../runner/delegate.js';
 import { runRules } from '../runner.js';
 import type {
   CompiledRule,
@@ -342,6 +343,19 @@ export async function runFix({ paths, options }: RunFixArgs): Promise<number> {
     return cliError(useColor, `applyFixes failed: ${(err as Error).message}`);
   }
 
+  // 8b. #34 — run file-mutating format specs (prettier --write, dotnet
+  // format, eslint --fix, gofmt -w, ruff format) via `runFormatFixes`.
+  // The runner enforces the safety blocklist; refusals / crashes
+  // come back as synthetic workspace-level findings which the user
+  // sees in the report. This is the first half of the format-vs-
+  // delegate fixpoint integration — the second half (a follow-up
+  // delegate detect to surface findings the format pass exposed)
+  // lands in a follow-up PR.
+  const formatFailureFindings = await runFormatFixes(
+    loaded.formatSpecs,
+    loaded.resolvedConfig.rules.configure,
+  );
+
   // 9. Emit output.
   if (isJson) {
     // v1 wire document — see `src/reporter/fix-schema.ts` and
@@ -350,13 +364,45 @@ export async function runFix({ paths, options }: RunFixArgs): Promise<number> {
     // we look them up by `(path, ruleId, range)` so the agent sees
     // the same ±contextBuffer window the text reporter prints.
     const doc = toV1JsonWithContext(fixResult, findings);
+    // #34 — merge any format-spec safety refusals / crashes so the
+    // agent sees them in the same wire document.
+    if (formatFailureFindings.length > 0) {
+      const failureSuggestions = formatFailureFindings.map((f) => ({
+        ruleId: f.ruleId,
+        severity: f.severity,
+        message: f.message,
+        path: f.path || null,
+        line: 0,
+        column: 0,
+        endLine: 0,
+        endColumn: 0,
+        matchText: '',
+        guidance: 'format/delegate spec fix refused or tool crashed — see regent logs.',
+      }));
+      // `doc.suggested` is `readonly FixV1SuggestedEdit[]` — build a
+      // new array instead of mutating in place.
+      (doc as { suggested: readonly unknown[] }).suggested = [
+        ...doc.suggested,
+        ...failureSuggestions,
+      ];
+    }
     process.stdout.write(`${JSON.stringify(doc, null, 2)}\n`);
   } else {
-    process.stdout.write(`${renderHuman(fixResult, { cwd, useColor })}\n`);
+    let human = renderHuman(fixResult, { cwd, useColor });
+    if (formatFailureFindings.length > 0) {
+      human += '\nFormat/delegate spec issues:\n';
+      for (const f of formatFailureFindings) {
+        human += `  ${f.ruleId} [${f.severity}]: ${f.message}\n`;
+      }
+    }
+    process.stdout.write(`${human}\n`);
   }
 
-  // 10. Exit code per spec.
-  return hasConflictingDeferred(fixResult) ? 1 : 0;
+  // 10. Exit code per spec. Format failures bump the exit code —
+  // they signal "delegated tool refused" or "tool crashed", which the
+  // agent should treat as actionable, same as overlap conflicts.
+  const formatFailures = formatFailureFindings.length > 0;
+  return hasConflictingDeferred(fixResult) || formatFailures ? 1 : 0;
 }
 
 /**

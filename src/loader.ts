@@ -23,13 +23,22 @@ import { isAbsolute, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { loadConfig, type CliArgs, type ResolvedConfig } from './config/index.js';
+import type { z } from 'zod';
+
 import type { FixRuleSpec } from './config/schema.js';
 import type { AstRuleSpec, CompiledAstRule } from './kinds/ast.js';
 import type {
   CompiledTransformRule,
 } from './kinds/transform.js';
+import type { FormatRuleSpec } from './kinds/format.js';
+import type { DelegateRuleSpec } from './kinds/delegate.js';
+import {
+  loadDelegateSpecFilesUnder,
+  loadFormatSpecFilesUnder,
+} from './loader/format-delegate-files.js';
 import {
   isNpmPackageSpec,
+  resolveExtendsBundle,
   resolveExtendsNpmPackage,
 } from './loader/plugin-extends.js';
 import {
@@ -80,6 +89,22 @@ export interface LoaderRuleSet {
    * `rules.transform[]` inline entries.
    */
   readonly transformRules: readonly CompiledTransformRule[];
+  /**
+   * Format specs (#34) — file-mutating tools (prettier --write,
+   * dotnet format, eslint --fix, gofmt -w, ruff format). The
+   * runner shells out via `safeSpawn` with the safety blocklist
+   * enforced. `regent check` runs `detect`; `regent fix` runs
+   * `fix` (when present) plus a follow-up `detect` to surface the
+   * diff in the report. File-based discovery lands in 34c.
+   */
+  readonly formatSpecs: readonly FormatRuleSpec<z.ZodTypeAny>[];
+  /**
+   * Delegate specs (#34) — read-only analysis tools (eslint,
+   * ruff check, tsc --noEmit, golangci-lint run). Both `regent
+   * check` and `regent fix` run the `detect` argv. File-based
+   * discovery lands in 34c.
+   */
+  readonly delegateSpecs: readonly DelegateRuleSpec<z.ZodTypeAny>[];
   readonly acceptList: readonly LoadedAcceptEntry[];
   readonly resolvedConfig: ResolvedConfig;
   readonly totalSourceLayers: number;
@@ -102,6 +127,20 @@ export async function loadRules(options: LoaderOptions): Promise<LoaderRuleSet> 
   const fileAstRules: CompiledAstRule[] = [];
   const fileTransformRules: CompiledTransformRule[] = [];
   const seen = new Set<string>();
+  // #34c — collected from file discovery + inline config + bundle
+  // resolution, then merged by id at the end (later wins).
+  const formatSpecsBySource: Array<{
+    readonly spec: FormatRuleSpec<z.ZodTypeAny>;
+    readonly source: string;
+    readonly origin: RuleOrigin;
+  }> = [];
+  const delegateSpecsBySource: Array<{
+    readonly spec: DelegateRuleSpec<z.ZodTypeAny>;
+    readonly source: string;
+    readonly origin: RuleOrigin;
+  }> = [];
+  const formatSeen = new Set<string>();
+  const delegateSeen = new Set<string>();
 
   // 1. User-global rule files. Default: `~/.agents/rules/`. Overridable
   // via `STBL_REGENT_GLOBAL_RULES_PATH` for tests and sandboxed runs
@@ -124,6 +163,30 @@ export async function loadRules(options: LoaderOptions): Promise<LoaderRuleSet> 
     fileTransformRules.push(
       ...await loadTransformRuleFilesUnder(userGlobalRoot, 'global'),
     );
+    // #34c — same root also hosts format/delegate spec files
+    // (`*.format.ts` / `*.delegate.ts`).
+    for (const f of await loadFormatSpecFilesUnder(userGlobalRoot)) {
+      if (formatSeen.has(f.spec.id)) {
+        continue;
+      }
+      formatSpecsBySource.push({
+        spec: f.spec,
+        source: f.meta.source,
+        origin: { kind: 'global', path: f.meta.path },
+      });
+      formatSeen.add(f.spec.id);
+    }
+    for (const d of await loadDelegateSpecFilesUnder(userGlobalRoot)) {
+      if (delegateSeen.has(d.spec.id)) {
+        continue;
+      }
+      delegateSpecsBySource.push({
+        spec: d.spec,
+        source: d.meta.source,
+        origin: { kind: 'global', path: d.meta.path },
+      });
+      delegateSeen.add(d.spec.id);
+    }
   }
 
   // 2. Project-local rule files in tools/audit/rules/
@@ -139,6 +202,50 @@ export async function loadRules(options: LoaderOptions): Promise<LoaderRuleSet> 
     fileTransformRules.push(
       ...await loadTransformRuleFilesUnder(repoRulesDir, 'repo'),
     );
+  }
+
+  // 2b. #34c — format / delegate specs live one level up from
+  // rule files (`tools/audit/<name>.format.ts` vs
+  // `tools/audit/rules/<name>.lint.ts`) so the user can tell the
+  // two kinds apart at a glance. See CONTRIBUTING §"File-based
+  // discovery". Same first-seen id semantics as the rule files.
+  const repoSpecsDir = join(cwd, 'tools', 'audit');
+  if (existsSync(repoSpecsDir)) {
+    for (const f of await loadFormatSpecFilesUnder(repoSpecsDir)) {
+      // Skip if global root already registered this id (project wins
+      // only when the project file is encountered AFTER global;
+      // current order: global first → project second → inline third
+      // → bundle last. To preserve "project > global", we accept
+      // overwrites here. Otherwise the same project spec discovered
+      // from both roots would silently double-register — which the
+      // loader's existing dedupe semantics for rules avoid.)
+      if (formatSeen.has(f.spec.id)) {
+        formatSpecsBySource.splice(
+          formatSpecsBySource.findIndex((entry) => entry.spec.id === f.spec.id),
+          1,
+        );
+      }
+      formatSpecsBySource.push({
+        spec: f.spec,
+        source: f.meta.source,
+        origin: { kind: 'repo', path: f.meta.path },
+      });
+      formatSeen.add(f.spec.id);
+    }
+    for (const d of await loadDelegateSpecFilesUnder(repoSpecsDir)) {
+      if (delegateSeen.has(d.spec.id)) {
+        delegateSpecsBySource.splice(
+          delegateSpecsBySource.findIndex((entry) => entry.spec.id === d.spec.id),
+          1,
+        );
+      }
+      delegateSpecsBySource.push({
+        spec: d.spec,
+        source: d.meta.source,
+        origin: { kind: 'repo', path: d.meta.path },
+      });
+      delegateSeen.add(d.spec.id);
+    }
   }
 
   // 3. Inline rules from config.rules.detect[] and rules.fix[]
@@ -278,6 +385,42 @@ export async function loadRules(options: LoaderOptions): Promise<LoaderRuleSet> 
         seen.add(r.spec.id);
       }
     }
+    // #34c — same extends entry may resolve to format / delegate
+    // specs from a bundle package. Inline arrays don't carry
+    // format/delegate shapes (only rule shapes per the convention
+    // documented in `resolveExtendsBundle`); only npm-shaped
+    // strings participate in the bundle resolution below.
+    if (typeof ext === 'string' && isNpmPackageSpec(ext)) {
+      const bundle = await resolveExtendsBundle(ext, cwd);
+      for (const f of bundle.formatSpecs) {
+        if (formatSeen.has(f.id)) {
+          formatSpecsBySource.splice(
+            formatSpecsBySource.findIndex((entry) => entry.spec.id === f.id),
+            1,
+          );
+        }
+        formatSpecsBySource.push({
+          spec: f,
+          source: f.source ?? `extends '${ext}'`,
+          origin: { kind: 'repo', path: cwd },
+        });
+        formatSeen.add(f.id);
+      }
+      for (const d of bundle.delegateSpecs) {
+        if (delegateSeen.has(d.id)) {
+          delegateSpecsBySource.splice(
+            delegateSpecsBySource.findIndex((entry) => entry.spec.id === d.id),
+            1,
+          );
+        }
+        delegateSpecsBySource.push({
+          spec: d,
+          source: d.source ?? `extends '${ext}'`,
+          origin: { kind: 'repo', path: cwd },
+        });
+        delegateSeen.add(d.id);
+      }
+    }
   }
 
   // 4b. Parameterize (#33b) — materialise `defineParameterizedRule`
@@ -333,11 +476,107 @@ export async function loadRules(options: LoaderOptions): Promise<LoaderRuleSet> 
     origin: 'repo' as const,
   }));
 
+  // #34c — final format / delegate spec merge. Three sources have
+  // accumulated into `formatSpecsBySource` / `delegateSpecsBySource`:
+  //   1. user-global file discovery (`~/.agents/rules/**/*.format.ts`)
+  //   2. project file discovery (`tools/audit/<name>.format.ts`)
+  //   3. bundle resolution (`extends: '@scope/regent-format-dotnet'`)
+  // Plus the inline `config.rules.format[]` / `config.rules.delegate[]`
+  // entries. Inline entries win LAST — the user can shadow a file
+  // or bundle spec with an inline override without rewriting the file.
+  //
+  // The inline-config schema is `params: z.unknown().optional()` —
+  // Zod can't introspect a runtime zod schema, so the static cast
+  // widens the surface to the author-side `FormatRuleSpec` /
+  // `DelegateRuleSpec` types. At runtime `params.parse(...)` either
+  // succeeds (the author supplied a real zod schema) or fails — the
+  // failure is surfaced as a synthetic finding in the runner, not a
+  // loader-time crash.
+  for (const raw of config.rules.format ?? []) {
+    const spec = raw as unknown as FormatRuleSpec<z.ZodTypeAny>;
+    if (formatSeen.has(spec.id)) {
+      formatSpecsBySource.splice(
+        formatSpecsBySource.findIndex((entry) => entry.spec.id === spec.id),
+        1,
+      );
+    }
+    formatSpecsBySource.push({
+      spec,
+      source: spec.source ?? '<inline>',
+      origin: { kind: 'repo', path: cwd },
+    });
+    formatSeen.add(spec.id);
+  }
+  for (const raw of config.rules.delegate ?? []) {
+    const spec = raw as unknown as DelegateRuleSpec<z.ZodTypeAny>;
+    if (delegateSeen.has(spec.id)) {
+      delegateSpecsBySource.splice(
+        delegateSpecsBySource.findIndex((entry) => entry.spec.id === spec.id),
+        1,
+      );
+    }
+    delegateSpecsBySource.push({
+      spec,
+      source: spec.source ?? '<inline>',
+      origin: { kind: 'repo', path: cwd },
+    });
+    delegateSeen.add(spec.id);
+  }
+
+  // Apply disable + override (severity/message) the same way the
+  // detect-rule pipeline does. Disabled specs are removed;
+  // overridden specs replace their severity/message in place.
+  for (const id of config.rules.disable) {
+    const fIdx = formatSpecsBySource.findIndex((entry) => entry.spec.id === id);
+    if (fIdx !== -1) {
+      formatSpecsBySource.splice(fIdx, 1);
+      formatSeen.delete(id);
+    }
+    const dIdx = delegateSpecsBySource.findIndex((entry) => entry.spec.id === id);
+    if (dIdx !== -1) {
+      delegateSpecsBySource.splice(dIdx, 1);
+      delegateSeen.delete(id);
+    }
+  }
+  for (const [id, ov] of Object.entries(config.rules.override)) {
+    const o = ov as RuleOverride;
+    const fIdx = formatSpecsBySource.findIndex((entry) => entry.spec.id === id);
+    if (fIdx !== -1) {
+      // Format specs override `severity` only — there is no
+      // `message` field on the spec kind (findings carry the
+      // message; the spec is just an argv factory + normalizer).
+      const existing = formatSpecsBySource[fIdx]!;
+      formatSpecsBySource[fIdx] = {
+        ...existing,
+        spec: {
+          ...existing.spec,
+          severity: (o.severity ?? existing.spec.severity) as Severity,
+        },
+      };
+    }
+    const dIdx = delegateSpecsBySource.findIndex((entry) => entry.spec.id === id);
+    if (dIdx !== -1) {
+      const existing = delegateSpecsBySource[dIdx]!;
+      delegateSpecsBySource[dIdx] = {
+        ...existing,
+        spec: {
+          ...existing.spec,
+          severity: (o.severity ?? existing.spec.severity) as Severity,
+        },
+      };
+    }
+  }
+
+  const formatSpecs = formatSpecsBySource.map((entry) => entry.spec);
+  const delegateSpecs = delegateSpecsBySource.map((entry) => entry.spec);
+
   return {
     rules: allRules,
     parameterisedRules: parameterisedSnapshots,
     astRules,
     transformRules,
+    formatSpecs,
+    delegateSpecs,
     acceptList,
     resolvedConfig: config,
     totalSourceLayers:
@@ -586,7 +825,7 @@ async function importRuleFile(absPath: string): Promise<RuleSpec | undefined> {
 async function resolveExtendsItem(
   item: string | readonly unknown[],
   cwd: string,
-): Promise<CompiledRule[]> {
+): Promise<readonly CompiledRule[]> {
   if (typeof item !== 'string') {
     // Treat as inline rule array.
     const out: CompiledRule[] = [];
