@@ -6,6 +6,27 @@ project rule (`[.stbl](feat/<area>): <subject>`).
 
 ## Unreleased (post-v0.4.0)
 
+### Added — dogfooding: `tools/audit/rules/` team-authored TS rules
+
+- Three starter `.lint.ts` files in `tools/audit/rules/`:
+  - `ts.no-default-export` — bans `export default` in `src/**`
+    (lib) so the rule file and `src/cli.ts` template-literal
+    false-positive are excluded.
+  - `ts.no-process-exit-in-lib` — bans `process.exit(` outside
+    `src/cli/**` (the CLI subsystem owns process termination; see
+    #79 / #88 for why).
+  - `ts.no-emit-helper` — bans `console.{log,error,warn,info,debug}(`
+    outside `src/cli/**` (operational logs go through pino).
+- New `bun run regent:check` script: `bun run build && node
+  dist/cli.js check --all --include-rules 'ts.*'`. Scoped to the
+  team-authored rules so global C# rules don't fire on the dogfooding
+  pass.
+- `CONTRIBUTING.md` documents the dogfooding policy and adds the
+  gate to the PR checklist; `README.md` Architecture table
+  distinguishes `tools/audit/rules/` (team rules, enforced) from
+  `examples/` (curated samples, teaching material).
+  [#86](https://github.com/dot-stbl/regent/issues/86).
+
 ### Added — pattern helpers for Java, Go, Rust
 
 - Twelve new helpers in the `patterns` namespace:

@@ -338,6 +338,7 @@ all custom log payloads; pino's redact covers the rest.
 | `src/examples/index.ts` | shipped-example registry |
 | `assets/llm/` | agent skill contract (markdown) |
 | `examples/<lang>/*.lint.ts` | shipped rule packs (NOT auto-loaded) |
+| `tools/audit/rules/*.lint.ts` | **team-authored** rules — `regent` dogfooding its own conventions (separate from `examples/`, enforced via `bun run regent:check`) |
 
 ## Why `regent`?
 

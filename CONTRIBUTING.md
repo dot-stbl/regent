@@ -425,6 +425,9 @@ Once a finding is `pending`, the team can:
 - [ ] `bun run test` exits 0; new rule fires positive fixture, ignores negative.
 - [ ] `bun run typecheck` exits 0.
 - [ ] `bun run lint` exits 0.
+- [ ] `bun run regent:check` exits 0 — the team-authored `ts.*` rules
+      in `tools/audit/rules/` pass against this repo. New rules ship
+      green or with documented narrow `excludePaths`.
 - [ ] `bun run build && node dist/cli.js check --all` exits 0 in
       `regent/` repo (the tool dogfoods itself).
 - [ ] Commit subject follows `[.stbl](feat/<area>): ...` (see
@@ -475,14 +478,35 @@ bun run typecheck   # tsc --noEmit
 bun run lint        # eslint
 bun run test        # vitest run
 bun run smoke       # build + node dist/cli.js check --help
+bun run regent:check  # team-authored ts.* rules in tools/audit/rules/
 
 # Run a specific test file
 bunx vitest run test/loader.test.ts
 bunx vitest run test/loader.test.ts -t "loads no rules"
-
 # Watch tests during development (NOT in agent — this would leak)
 # bunx vitest
 ```
+
+## Dogfooding policy
+
+`tools/audit/rules/` holds **team-authored** `.lint.ts` rules that
+encode this repo's own conventions. They are the regression-test
+backstop — every PR is a chance for rot to creep in, and these
+rules catch it before review.
+
+This is separate from `examples/`:
+- `examples/<lang>/*.lint.ts` — curated samples for users to copy.
+  Teaching material, not enforced on this repo.
+- `tools/audit/rules/*.lint.ts` — our own rules, enforced via
+  `bun run regent:check`. Failures fail CI.
+
+When you add a rule here, it must:
+- pass green against the current `src/**` (no existing violations), and
+- keep passing — fix the underlying code, don't widen the rule.
+
+Adding a new dogfooding rule is a small PR: 1 `.lint.ts` file +
+matching entry in `package.json`'s `regent:check` script (if the
+scope changes) + a one-line PR checklist update.
 
 **Important:** `regent` ships a CLI. **Do not run `node dist/cli.js
 check` repeatedly** during agent sessions — it spawns a process
