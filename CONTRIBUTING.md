@@ -464,7 +464,7 @@ order (low → high):
 5. Env: `STBL_REGENT_*`
 6. CLI args (highest)
 
-For `extends` to npm packages (Phase 3+, `regent-rules-*`), declare
+For `extends` to npm packages (`@scope/regent-rules-*`), declare
 the package's expected shape:
 
 ```ts
@@ -475,5 +475,19 @@ the package's expected shape:
 }
 ```
 
-`extends: '@scope/regent-rules-csharp'` resolves the package and
-imports its default export (a `RuleSpec[]`).
+`extends: '@scope/regent-rules-csharp'` resolves the package via
+Node's CommonJS resolution anchored at `loader.ts` (so the user's
+own `node_modules` is searched) and dynamic-imports the resolved
+file. The package must expose a rule shape — a `default` export
+(either a single spec or an array), a `rule` export, or any named
+export whose value matches the `RuleSpec` discriminator.
+
+Bare unprefixed specifiers (no `@scope/`) are intentionally not
+treated as npm packages — that's where the legacy preset-name
+confusion lived; use a relative prefix (`./packages-foo`) for local
+paths. The legacy `@dot-stbl/regent/presets/<lang>` strings still
+throw a clear error to surface drift from the v0.2 preset removal.
+
+A missing or malformed plugin surfaces as a `regent` error with the
+spec and the underlying `ERR_MODULE_NOT_FOUND` (or similar),
+naming the install command (`npm/pnpm/bun install`) to fix it.
