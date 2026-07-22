@@ -3,6 +3,10 @@
 export { defineDetectRule } from './detect.js';
 export { defineFixRule } from './fix.js';
 export {
+  defineParameterizedRule,
+  type ParameterizedRuleSpec,
+} from './parameterized.js';
+export {
   defineTransformRule,
   type CompiledTransformRule,
 } from './transform.js';

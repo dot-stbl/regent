@@ -90,6 +90,63 @@ warning, continues the run, and drops that function's edits.
 This contract lets the engine run its fixpoint loop deterministically and makes
 CI-applied diffs reproducible for users reviewing the same input and rule set.
 
+## Authoring a parameterized rule
+
+When a rule's `pattern` / `message` depends on values that should
+live in the config (the project's settings, not hardcoded in the
+rule), use `defineParameterizedRule` and a zod `params` schema:
+
+```ts
+import { z } from 'zod';
+import { defineParameterizedRule } from '@dot-stbl/regent';
+
+export default defineParameterizedRule({
+  id: 'csharp.max-line-length',
+  severity: 'warning',
+  params: z.object({
+    max: z.number().int().min(40).default(120),
+    excludeImports: z.boolean().default(false),
+  }),
+  pattern: (p) => p.excludeImports
+    ? `^(?!\\s*using\\s).*.{${String(p.max + 1)},}$`
+    : `^.{${String(p.max + 1)},}$`,
+  globs: ['**/*.cs'],
+  message: (p) => `line exceeds ${String(p.max)} chars`,
+});
+```
+
+Function-typed fields (`pattern`, `excludeWhen`, `message`) take the
+inferred params (`z.infer<typeof schema>`) at materialisation time
+and return a string. Plain string values are still accepted for
+fields that don't need parameters.
+
+### Configuring values
+
+Per-rule values live in `.regentrc.ts` under `rules.configure`:
+
+```ts
+export default {
+  rules: {
+    configure: {
+      'csharp.max-line-length': { max: 100, excludeImports: true },
+    },
+  },
+};
+```
+
+Values are validated against the rule's `params` schema at load
+time; missing keys default to the schema's own `.default()`. An
+unknown rule id in `configure` is silently ignored (so projects can
+roll out the feature gradually); a value that fails the schema is a
+hard load-time error with the path into the value.
+
+### Introspection
+
+`regent describe <ruleId>` (after 33c lands) emits the params JSON
+Schema so an LLM agent or a human can see exactly which knobs are
+available and their defaults — same workflow as running
+`regent config show`, scoped to a single rule.
+
 ## Authoring a fix
 
 A rule's optional `fix` attachment tells `regent fix` how to auto-rewrite

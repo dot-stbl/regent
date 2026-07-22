@@ -16,6 +16,7 @@ export function defaultConfig(): RegentConfig {
       extends: [],
       disable: [],
       override: {},
+      configure: {},
       accept: [],
     },
     excludePaths: [],
