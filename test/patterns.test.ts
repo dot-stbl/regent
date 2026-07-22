@@ -146,6 +146,18 @@ describe('patterns', () => {
       expect(re).toContain('main');
       expect(re).toContain('(');
     });
+
+    it('goPrintln covers Print / Println / Printf on the fmt package', () => {
+      const re = patterns.goPrintln().toRegex();
+      expect(re).toContain('fmt');
+      expect(re).toContain('Print');
+    });
+
+    it('goPanic matches `panic(` call form', () => {
+      const re = patterns.goPanic().toRegex();
+      expect(re).toContain('panic');
+      expect(re).toContain('(');
+    });
   });
 
   describe('Rust helpers', () => {

@@ -5,11 +5,12 @@
  * (`slog`, `logrus`, `zap`, ...).
  */
 import { defineDetectRule } from '@dot-stbl/regent';
+import { patterns } from '@dot-stbl/regent';
 
 export default defineDetectRule({
   id: 'go.println-in-prod',
   severity: 'warning',
-  pattern: '\\bfmt\\.(Print|Println|Printf|Println)\\s*\\(',
+  pattern: patterns.goPrintln().toRegex(),
   globs: ['**/*.go'],
   excludePaths: ['**/*_test.go', '**/testdata/**'],
   message:

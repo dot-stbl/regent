@@ -10,11 +10,12 @@ errors (e.g. unreachable codepaths, contract violations).
 ```ts
 // examples/go/go.panic-in-prod.lint.ts
 import { defineDetectRule } from '@dot-stbl/regent';
+import { patterns } from '@dot-stbl/regent';
 
 export default defineDetectRule({
   id: 'go.panic-in-prod',
   severity: 'warning',
-  pattern: '\\bpanic\\s*\\(',
+  pattern: patterns.goPanic().toRegex(),
   globs: ['**/*.go'],
   excludePaths: [
     '**/main.go',
@@ -39,10 +40,9 @@ export default defineDetectRule({
 
 ## Pattern note
 
-This example uses raw regex (no `patterns.goPanic()` helper ships
-in v0.3 — the AC helpers `goPackageDecl` / `goImport` /
-`goFuncMain` cover different shapes). When a corresponding helper
-is added, swap the inline pattern for `patterns.goPanic().toRegex()`.
+`patterns.goPanic()` matches `panic(` (call form only — does not
+fire on `panic("...")` in a const-declaration context that doesn't
+exist in Go, but stays narrow to keep false positives low).
 
 ## Testing
 

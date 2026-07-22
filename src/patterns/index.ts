@@ -288,4 +288,22 @@ export const patterns = {
   rustUnwrap(): RegexBuilder {
     return compile(['\\.unwrap\\s*\\(']);
   },
+
+  /**
+   * Go `fmt.Print` / `fmt.Println` / `fmt.Printf(...)` — stdout
+   * noise that should go through a structured logger. Deduplicated
+   * alternative set; the v0.3 raw example listed `Println` twice,
+   * which the helper resolves.
+   */
+  goPrintln(): RegexBuilder {
+    return compile(['\\bfmt\\.(?:Print|Println|Printf)\\s*\\(']);
+  },
+
+  /**
+   * Go `panic(...)` — process-kill. Reserve for genuinely
+   * unrecoverable programmer errors; return `error` from libraries.
+   */
+  goPanic(): RegexBuilder {
+    return compile(['\\bpanic\\s*\\(']);
+  },
 } as const;
