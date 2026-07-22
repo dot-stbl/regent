@@ -147,6 +147,127 @@ Schema so an LLM agent or a human can see exactly which knobs are
 available and their defaults — same workflow as running
 `regent config show`, scoped to a single rule.
 
+## Authoring a format / delegate spec (#34)
+
+Two new rule kinds let reg-as-orchestrator shell out to native
+tools (`dotnet format`, `prettier`, `eslint`, `ruff`, `gofmt`)
+without re-implementing them. The user supplies the spec
+(translates the regent config into a CLI argv) and a `normalize`
+function that maps the tool's exit code + stdout + stderr into
+regent's `Finding` schema. Bundles (`@scope/regent-delegate-dotnet`
+et al.) ship a built-in `normalize` for the common tools; custom
+internal tools write their own.
+
+### `defineFormat` — file-mutating tools
+
+Use for tools that **change files** (`prettier --write`,
+`dotnet format`, `eslint --fix`, `gofmt -w`, `ruff format`).
+The runner runs `detect` for `regent check` (dry-run argv) and
+both `detect` and `fix` for `regent fix` (mutating argv).
+
+```ts
+import { defineFormat } from '@dot-stbl/regent';
+import { z } from 'zod';
+
+export default defineFormat({
+  id: 'dotnet.whitespace',
+  severity: 'warning',
+  params: z.object({
+    folder: z.string().default('.'),
+    whitespace: z.boolean().default(true),
+  }),
+  detect: (p) => [
+    'dotnet', 'format', p.folder, '--verify-no-changes',
+    p.whitespace && '--whitespace',
+  ],
+  fix: (p) => [
+    'dotnet', 'format', p.folder, p.whitespace && '--whitespace',
+  ],
+  normalize: (proc) => {
+    if (proc.exitCode === 0) return [];
+    return [{
+      ruleId: 'dotnet.whitespace',
+      severity: 'warning',
+      path: '',
+      match: { startLine: 0, startColumn: 0, endLine: 0, endColumn: 0,
+                matchText: '', groups: [] },
+      context: { startLine: 0, endLine: 0, lines: [] },
+      message: proc.stdout.trim() || 'dotnet format reported changes',
+      source: 'dotnet.whitespace',
+      status: 'violation',
+    }];
+  },
+});
+```
+
+The runner refuses `watch` / `serve` / port-binding flags before
+spawn (see `safeInvokeDelegate` in 34b). The spec author is
+responsible for argv that the OS can execute; `shell: false`
+semantics, paths as separate argv elements.
+
+### `defineDelegate` — read-only analysis tools
+
+Use for tools that **report violations** without modifying files
+(`eslint`, `ruff check`, `tsc --noEmit`, `golangci-lint run`).
+The runner runs `detect` for both `regent check` and
+`regent fix` (no `fix` field — delegates are observational).
+
+```ts
+import { defineDelegate } from '@dot-stbl/regent';
+import { z } from 'zod';
+
+export default defineDelegate({
+  id: 'eslint.security',
+  severity: 'error',
+  params: z.object({
+    files: z.array(z.string()).default(['src']),
+  }),
+  detect: (p) => ['eslint', '--format', 'json', ...p.files],
+  normalize: (proc) => {
+    if (proc.exitCode === 0) return [];
+    type Report = { filePath: string; messages: {
+      ruleId: string; severity: 1 | 2; message: string;
+      line: number; column: number;
+    }[]; }[];
+    const parsed = JSON.parse(proc.stdout || '[]') as Report;
+    return parsed.flatMap((entry) => entry.messages.map((m) => ({
+      ruleId: 'eslint.security',
+      severity: m.severity === 2 ? 'error' : 'warning',
+      path: entry.filePath,
+      match: {
+        startLine: m.line - 1, startColumn: m.column - 1,
+        endLine: m.line - 1, endColumn: m.column,
+        matchText: m.message, groups: [],
+      },
+      context: { startLine: m.line - 1, endLine: m.line - 1, lines: [] },
+      message: m.message,
+      source: 'eslint.security',
+      status: 'violation',
+    })));
+  },
+});
+```
+
+The `ToolProcessResult` argument to `normalize` carries `exitCode`,
+`stdout`, `stderr`, `argv`, `durationMs`, and a `truncated` flag
+for the `maxBuffer` ceiling. If the tool crashes / output is
+unparseable / `normalize` throws, the runner synthesises a
+workspace-level finding with `severity: 'error'` and `regent`
+exits non-zero — the agent sees the failure in the report, not as
+a crash.
+
+### Bundles
+
+Common tools ship as npm packages:
+`@scope/regent-format-dotnet` exports a default `defineFormat`
+spec; `extends: '@scope/regent-format-dotnet'` loads it. The
+`extends` resolution path is the same plugin resolve we built for
+#23. Custom tools in `tools/audit/<name>.format.ts` /
+`tools/audit/<name>.delegate.ts` are also supported (loader
+discovery lands in 34c). Inline `rules.format[]` /
+`rules.delegate[]` in `.regentrc.ts` work but are not the primary
+path.
+
 ## Authoring a fix
 
 A rule's optional `fix` attachment tells `regent fix` how to auto-rewrite

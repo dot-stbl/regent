@@ -168,6 +168,8 @@ export function buildEnvConfig(): RegentConfig | null {
     rules: {
       detect: [],
       fix: [],
+      format: [],
+      delegate: [],
       extends: [],
       disable: [],
       override: {},

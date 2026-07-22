@@ -42,6 +42,9 @@ export function mergeConfigs(layers: readonly RegentConfig[]): RegentConfig {
     string,
     RegentConfig['rules']['transform'][number]
   >();
+  // #34a — last-wins by id, same semantics as `detect` / `ast`.
+  const formatById = new Map<string, RegentConfig['rules']['format'][number]>();
+  const delegateById = new Map<string, RegentConfig['rules']['delegate'][number]>();
 
   const extendsList: Array<string | readonly unknown[]> = [];
   const disableSet = new Set<string>();
@@ -95,6 +98,14 @@ export function mergeConfigs(layers: readonly RegentConfig[]): RegentConfig {
     // rules.transform — last-wins by id
     for (const r of layer.rules.transform ?? []) {
       transformById.set(r.id, r);
+    }
+    // rules.format — last-wins by id (#34a)
+    for (const r of layer.rules.format ?? []) {
+      formatById.set(r.id, r);
+    }
+    // rules.delegate — last-wins by id (#34a)
+    for (const r of layer.rules.delegate ?? []) {
+      delegateById.set(r.id, r);
     }
 
     // rules.extends — concatenate (order preserved; later wins for
@@ -202,6 +213,8 @@ export function mergeConfigs(layers: readonly RegentConfig[]): RegentConfig {
       fix: [...fixById.values()],
       ast: [...astById.values()],
       transform: [...transformById.values()],
+      format: [...formatById.values()],
+      delegate: [...delegateById.values()],
       extends: extendsList,
       disable: [...disableSet],
       override: Object.fromEntries(overrideMap) as Record<string, { severity?: 'error' | 'warning' | 'suggestion'; message?: string }>,
