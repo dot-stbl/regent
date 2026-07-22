@@ -262,11 +262,109 @@ Common tools ship as npm packages:
 `@scope/regent-format-dotnet` exports a default `defineFormat`
 spec; `extends: '@scope/regent-format-dotnet'` loads it. The
 `extends` resolution path is the same plugin resolve we built for
-#23. Custom tools in `tools/audit/<name>.format.ts` /
-`tools/audit/<name>.delegate.ts` are also supported (loader
-discovery lands in 34c). Inline `rules.format[]` /
-`rules.delegate[]` in `.regentrc.ts` work but are not the primary
-path.
+#23 — a single package can export any combination of detect
+rules, format specs, and delegate specs; the loader routes each
+export into the right pipeline via the `__kind` marker attached
+by `defineFormat` / `defineDelegate`:
+
+```ts
+// @scope/regent-mixed/index.ts (becomes an ESM bundle)
+import { defineFormat, defineDelegate } from '@dot-stbl/regent';
+
+export const dotnetSpec = defineFormat({
+  id: 'dotnet.whitespace', severity: 'warning',
+  params: z.object({ folder: z.string().default('.') }),
+  detect: (p) => ['dotnet', 'format', p.folder, '--verify-no-changes'],
+  fix: (p) => ['dotnet', 'format', p.folder],
+  normalize: () => [],
+});
+
+export const eslintSpec = defineDelegate({
+  id: 'eslint.security', severity: 'error',
+  params: z.object({ files: z.array(z.string()).default(['src']) }),
+  detect: (p) => ['eslint', '--format', 'json', ...p.files],
+  normalize: (proc) => parseEslintJson(proc.stdout),
+});
+```
+
+Then in `.regentrc.ts`:
+
+```ts
+export default {
+  rules: {
+    extends: [
+      '@scope/regent-mixed',
+      // inline `format[]` / `delegate[]` for one-off specs
+    ],
+  },
+};
+```
+
+The resolver walks the bundle's exports in `default → rule →
+rest-of-named` order. The `__kind` marker (`'format'` |
+`'delegate'`) is the only way to disambiguate a delegate spec
+(structurally identical to a format spec without `fix`); always
+go through the factories, not hand-rolled objects.
+
+### File-based discovery
+
+Custom specs can live as files anywhere `tinyglobby` reaches —
+no config changes required. The loader scans two roots:
+
+| Root | Glob | Notes |
+|------|------|-------|
+| `~/.agents/rules/**` (user-global, overridable via `STBL_REGENT_GLOBAL_RULES_PATH`) | `**/*.format.ts`, `**/*.delegate.ts` | Per-user house rules; project files win on id collision. |
+| `<cwd>/tools/audit/` (project) | `**/*.format.ts`, `**/*.delegate.ts` | One level up from `tools/audit/rules/` so format / delegate specs are visually distinct from rule files. |
+
+Discovery order: user-global → project → inline-config → bundle
+`extends`. Same-id collisions: later wins (project > global,
+inline > project, bundle > inline). The `disable` and `override`
+rules apply identically.
+
+A `.format.ts` / `.delegate.ts` file looks like the bundle
+shape minus the package.json:
+
+```ts
+// tools/audit/dotnet.whitespace.format.ts
+import { defineFormat } from '@dot-stbl/regent';
+import { z } from 'zod';
+
+export default defineFormat({
+  id: 'dotnet.whitespace', severity: 'warning',
+  params: z.object({ folder: z.string().default('.') }),
+  detect: (p) => ['dotnet', 'format', p.folder, '--verify-no-changes'],
+  fix: (p) => ['dotnet', 'format', p.folder],
+  normalize: () => [],
+});
+```
+
+A sibling `<name>.md` (after stripping the `.format.ts` /
+`.delegate.ts` extension) is auto-detected as the prose document
+and used for SARIF `helpUri` when the spec doesn't declare its
+own `source` field. Same convention as `*.lint.ts` / `*.lint.md`.
+
+### Auto-detect
+
+`regent check` scans the repo root for language markers and
+emits a one-shot hint to stderr when a marker is present but no
+spec is registered for the language. Hints never become
+findings, never bump the exit code.
+
+| Marker | Language | Suggested bundle |
+|--------|----------|------------------|
+| `*.sln` | dotnet | `@scope/regent-format-dotnet` |
+| `package.json` | node | `@scope/regent-delegate-eslint` |
+| `Cargo.toml` | rust | `@scope/regent-delegate-cargo` |
+| `go.mod` | go | `@scope/regent-delegate-golangci` |
+| `pyproject.toml` / `setup.py` / `requirements.txt` | python | `@scope/regent-delegate-ruff` |
+
+A hint is suppressed when:
+- the marker is absent;
+- a registered spec has an `id` that starts with the hint prefix
+  (e.g. `dotnet.*` covers the whole dotnet bundle);
+- the user explicitly `disable`'d the bundle id;
+- `STBL_REGENT_AUTODETECT=off` is set (CI escape hatch for
+  stable stderr).
 
 ## Authoring a fix
 

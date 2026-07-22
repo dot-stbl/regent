@@ -36,6 +36,7 @@ import { Command } from 'commander';
 import pc from 'picocolors';
 
 import { loadRules } from './loader.js';
+import { autodetectHints } from './loader/autodetect.js';
 import { runDelegates } from './runner/delegate.js';
 import { runRules, runRulesStream } from './runner.js';
 import { BUNDLES } from './bundles/index.js';
@@ -378,6 +379,20 @@ async function runCheck(options: CheckOptions): Promise<number> {
   } catch (err) {
     getLogger().error({ err: { message: (err as Error).message } }, 'failed to load rules');
     return 1;
+  }
+
+  // #34c — emit auto-detect hints (informational; never affects the
+  // report or exit code). Suppressed via `STBL_REGENT_AUTODETECT=off`
+  // for CI / scripted runs that want stable stderr. Hints go to
+  // stderr so the stdout report stays machine-parseable for
+  // `--format json` consumers.
+  for (const hint of autodetectHints(
+    cwd,
+    loadedRules.formatSpecs,
+    loadedRules.delegateSpecs,
+    loadedRules.resolvedConfig.rules.disable,
+  )) {
+    process.stderr.write(`${hint}\n`);
   }
 
   let rules = loadedRules.rules;

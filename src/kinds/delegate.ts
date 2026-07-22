@@ -85,11 +85,17 @@ export interface DelegateRuleSpec<TParams extends z.ZodTypeAny> {
 
 /**
  * Type-safe factory for {@link DelegateRuleSpec}. Mirrors
- * `defineParameterizedRule` and `defineFormat`.
+ * `defineParameterizedRule` and `defineFormat`. Also attaches a
+ * private `__kind` marker so the loader can distinguish delegate
+ * specs from format specs at runtime when both predicates match
+ * the same shape (see `defineFormat` for the rationale).
  */
 export function defineDelegate<
   const TParams extends z.ZodTypeAny,
   const T extends DelegateRuleSpec<TParams>,
 >(spec: T): T {
-  return Object.freeze(spec) as T;
+  return Object.freeze({
+    __kind: 'delegate',
+    ...spec,
+  }) as T;
 }
