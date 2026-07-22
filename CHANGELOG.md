@@ -4,6 +4,71 @@ All notable changes to `@dot-stbl/regent` are recorded here. Dates are
 UTC and approximate. Project tags follow the [commit-format](../../)
 project rule (`[.stbl](feat/<area>): <subject>`).
 
+## Unreleased (post-v0.4.0)
+
+### Added — pattern helpers for Java, Go, Rust
+
+- Twelve new helpers in the `patterns` namespace:
+  - **Java:** `javaPublicClass`, `javaSystemOut`, `javaOverride`
+  - **Go:** `goPackageDecl`, `goImport`, `goFuncMain`, `goPrintln`,
+    `goPanic`
+  - **Rust:** `rustPubFn`, `rustUseCrate`, `rustUnsafe`, `rustUnwrap`
+- Migrates every shipped Java / Go / Rust example `.lint.ts` to
+  consume the matching helper so the example packs demonstrate the
+  helper API the way C# / TypeScript examples already did.
+- Closes [#28](https://github.com/dot-stbl/regent/issues/28),
+  [#29](https://github.com/dot-stbl/regent/issues/29),
+  [#30](https://github.com/dot-stbl/regent/issues/30).
+  [#92](https://github.com/dot-stbl/regent/pull/92),
+  [#93](https://github.com/dot-stbl/regent/pull/93),
+  [#94](https://github.com/dot-stbl/regent/pull/94).
+
+### Added — JSDoc on `src/core/` public API
+
+- Every public class + method in `src/core/{cache, dag, diff,
+  benchmark, scanner, scanner-matcher, scanner-defaults}.ts` now
+  carries a `/** */` block (purpose + `@param` / `@returns` where
+  the signature isn't self-evident, `@throws` for known failures).
+  IDE hover and the emitted `.d.ts` carry the prose; tsc preserves
+  JSDoc in declarations.
+  [#31](https://github.com/dot-stbl/regent/issues/31) →
+  [#90](https://github.com/dot-stbl/regent/pull/90) (`438123f`).
+
+### Cleanup — single source of truth for shipped-example prose
+
+- Removes 6 dead-on-arrival sibling `.md` files under
+  `examples/{rust, java, go}/<rule>.md`. They were created by #71
+  alongside the canonical prose at
+  `assets/llm/examples/<lang>/<id>.md` (the loader's path via
+  `regent llm examples <lang>.<rule>`). Nothing was reading them,
+  and after the helper migrations in #92–#94 they had drifted from
+  the canonical content. C#/TS/Python never carried the duplicate.
+  [#95](https://github.com/dot-stbl/regent/pull/95) (`70aa721`).
+
+### Submodule state
+
+- `assets/stbl` brand submodule: on the `dot-stbl/.github`
+  repository (404 → `vc9789d0` at this sync). Previously a fresh
+  checkout needed `git submodule update --init assets/stbl` before
+  running tests locally — the four `assets.test.ts` failures in
+  v0.4.0's "pre-existing" list disappeared once that was done. CI
+  uses `submodules: recursive` (`ci.yml`, `release.yml`) so CI was
+  unaffected; this is a local-only state.
+
+### Test stats
+
+- 555 / 555 tests pass on `main`. Up from v0.4.0's 530 / 535
+  (+25 from new patterns describe blocks and the v0.5 backlog
+  resolution in #91).
+
+### Completed from the v0.5 backlog (carried over v0.4.0)
+
+- [#23](https://github.com/dot-stbl/regent/issues/23) — Plugin
+  resolution via `extends: '@scope/regent-rules-x'`. Completed in
+  [#91](https://github.com/dot-stbl/regent/pull/91) (`fc9788d`).
+- [#31](https://github.com/dot-stbl/regent/issues/31) — Inline
+  `/** docs */` in core modules. Completed via [#90].
+
 ## v0.4.0 — fix-mode epic
 
 Released 2026-07-21.
@@ -238,10 +303,9 @@ fix-mode epic:
 - [#57](https://github.com/dot-stbl/regent/issues/57) — AST engine
   follow-ups (`needsNative`, regex deprecation, tri-state,
   grammar-version).
-- [#31](https://github.com/dot-stbl/regent/issues/31) — Analytics.
-- [#23](https://github.com/dot-stbl/regent/issues/23) — Plugin
-  resolution (`extends: '@scope/regent-rules-x'`). Originally in
-  v0.3.0, deferred to v0.5 along with the v0.4 backlog.
+
+Two items originally in the v0.5 backlog (#23, #31) were completed
+post-v0.4.0; see the **Unreleased** section above.
 
 ## v0.3.0
 

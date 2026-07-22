@@ -5,7 +5,7 @@
 > @dot-stbl/regent check`) catches the local rules once the repo has
 > at least one rule file under `examples/` or `tools/audit/rules/`.
 
-## Architecture (v0.2)
+## Architecture (v0.4)
 
 `regent` is a **multi-mode static analysis framework** with the LLM
 agent as the first-class rule author. Three rule kinds, all sharing
@@ -313,7 +313,9 @@ Available helpers: `todoComment`, `ticketReference`,
 `consoleLog`, `throwNewError`, `tsAnyType`, `trailingWhitespace`,
 `mixedIndent`, `finalNewlineMissing`, `tabIndent`,
 `fourSpaceIndent`, `twoSpaceIndent`, `packageDeclaration`,
-`pythonImport`.
+`pythonImport`, `javaPublicClass`, `javaSystemOut`, `javaOverride`,
+`goPackageDecl`, `goImport`, `goFuncMain`, `goPrintln`, `goPanic`,
+`rustPubFn`, `rustUseCrate`, `rustUnsafe`, `rustUnwrap`.
 
 ## Severity
 
