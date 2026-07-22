@@ -147,4 +147,31 @@ describe('patterns', () => {
       expect(re).toContain('(');
     });
   });
+
+  describe('Rust helpers', () => {
+    it('rustPubFn matches `pub fn name(`', () => {
+      const re = patterns.rustPubFn().toRegex();
+      expect(re).toContain('pub');
+      expect(re).toContain('fn');
+      expect(re).toContain('\\(');
+    });
+
+    it('rustUseCrate matches `use crate::`', () => {
+      const re = patterns.rustUseCrate().toRegex();
+      expect(re).toContain('use');
+      expect(re).toContain('crate::');
+    });
+
+    it('rustUnsafe matches `unsafe {`', () => {
+      const re = patterns.rustUnsafe().toRegex();
+      expect(re).toContain('unsafe');
+      expect(re).toContain('{');
+    });
+
+    it('rustUnwrap matches `.unwrap(`', () => {
+      const re = patterns.rustUnwrap().toRegex();
+      expect(re).toContain('.unwrap');
+      expect(re).toContain('(');
+    });
+  });
 });
