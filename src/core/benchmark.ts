@@ -15,12 +15,22 @@ import { runRules } from '../runner.js';
 import { defineRule } from '../define-rule.js';
 import type { CompiledRule, RuleSpec } from '../types.js';
 
+/**
+ * Inputs to `runBenchmark`. Sizes scale linearly with `files` and `rules`
+ * — keep both small for a quick smoke test (e.g. 50/50/3) and large
+ * for a realistic regression measurement (e.g. 2000/100/5).
+ */
 export interface BenchmarkOptions {
   readonly files: number;
   readonly rules: number;
   readonly iterations: number;
 }
 
+/**
+ * Per-iteration timings + aggregate statistics + (when a baseline
+ * exists) percentage drift vs. the recorded baseline. `baselineDeltaPct`
+ * is `null` on a first run, when no `.regent/baseline.json` is on disk.
+ */
 export interface BenchmarkResult {
   readonly files: number;
   readonly rules: number;
@@ -68,6 +78,15 @@ function generateSyntheticRules(count: number): RuleSpec[] {
   return out;
 }
 
+/**
+ * Run a synthetic benchmark: generate `files` synthetic `.cs` files
+ * and `rules` synthetic regex rules in a tmpdir, then run `runRules`
+ * `iterations` times end-to-end. Writes `.regent/baseline.json` on
+ * first run; reports drift vs. that baseline on subsequent runs.
+ *
+ * @param options file / rule / iteration counts (see {@link BenchmarkOptions})
+ * @returns aggregate timings + baseline drift (see {@link BenchmarkResult})
+ */
 export async function runBenchmark(
   options: BenchmarkOptions,
 ): Promise<BenchmarkResult> {

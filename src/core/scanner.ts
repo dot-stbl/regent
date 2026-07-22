@@ -13,6 +13,12 @@ import { readFile } from 'node:fs/promises';
 import { DEFAULT_EXCLUDE_PATHS } from './scanner-defaults.js';
 import { scanFileWithMatcher, type CompiledMatcher } from './scanner-matcher.js';
 
+/**
+ * Contract for everything that walks the filesystem for regent. The
+ * default implementation (`TsFileScanner`) lives in this file; a
+ * future Rust-backed `regent-core` binary implements the same interface
+ * so the runner can swap implementations without code changes.
+ */
 export interface FileScanner {
   /**
    * Discover files under `root` matching `includeGlobs` and not

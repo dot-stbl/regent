@@ -12,11 +12,22 @@
 
 import { compileRegex, type RegexMatcher } from '../regex.js';
 
+/**
+ * A pre-compiled pair of regex matchers used by `scanFileWithMatcher`.
+ * `exclude` (when non-null) suppresses lines that match the inner
+ * pattern but also match the exclude pattern.
+ */
 export interface CompiledMatcher {
   readonly pattern: RegexMatcher;
   readonly exclude: RegexMatcher | null;
 }
 
+/**
+ * One match found by `scanFileWithMatcher`: the line, its 0-indexed
+ * line number, and the absolute byte offsets of the line in the
+ * original file. Used by the runner to construct findings with file
+ * locations.
+ */
 export interface LineMatch {
   readonly lineIndex: number;
   readonly line: string;
@@ -53,6 +64,14 @@ export function scanFileWithMatcher(
   return out;
 }
 
+/**
+ * Compile a pattern + optional exclude pattern into a `CompiledMatcher`.
+ * Both inputs are compiled with `multiline: true`.
+ *
+ * @param pattern the primary regex source — must be ECMAScript-flavoured
+ * @param excludeWhen optional regex; lines matching both `pattern` and
+ *                    `excludeWhen` are dropped from the result
+ */
 export async function compileMatcher(
   pattern: string,
   excludeWhen: string | undefined,

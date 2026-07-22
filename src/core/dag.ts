@@ -9,8 +9,18 @@
 //   detectCycles(nodes, deps) — returns the cycle path, or null
 //   validateAcyclic(nodes, deps) — throws on cycle
 
+/**
+ * Adjacency representation of a dependency graph: each node maps to
+ * the list of nodes it depends on. Used as input to every helper in
+ * this module.
+ */
 export type DependencyMap<T> = ReadonlyMap<T, readonly T[]>;
 
+/**
+ * Result of `detectCycles` when a cycle exists. `cycle` is the path
+ * that closes back on itself: the first and last node are equal, and
+ * every consecutive pair is a dependency edge.
+ */
 export interface CycleError<T> {
   readonly cycle: readonly T[];
 }
