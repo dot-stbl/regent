@@ -79,6 +79,13 @@ export function mergeConfigs(layers: readonly RegentConfig[]): RegentConfig {
     concurrency: 4,
   };
 
+  // globalRulesPath is set by the user-global config (`config.json`)
+  // and threaded through unchanged — it lives outside the rule
+  // pipeline and isn't a scalar on any other layer. First non-undefined
+  // wins (the user-global layer is the source of truth; project / env
+  // can't override it).
+  let globalRulesPath: string | undefined;
+
   for (const layer of layers) {
     // rules.detect — last-wins by id
     for (const r of layer.rules.detect) {
@@ -174,6 +181,13 @@ export function mergeConfigs(layers: readonly RegentConfig[]): RegentConfig {
     log = { ...log, ...layer.log };
     output = { ...output, ...layer.output };
     runner = { ...runner, ...layer.runner };
+
+    // globalRulesPath — first non-undefined wins. The user-global
+    // layer (lowest above defaults) is the source of truth; project
+    // .regentrc.* cannot override it.
+    if (globalRulesPath === undefined && layer.globalRulesPath !== undefined) {
+      globalRulesPath = layer.globalRulesPath;
+    }
   }
 
   const excludeGroups: Record<string, readonly string[]> = {};
@@ -214,6 +228,7 @@ export function mergeConfigs(layers: readonly RegentConfig[]): RegentConfig {
     log,
     output,
     runner,
+    ...(globalRulesPath !== undefined ? { globalRulesPath } : {}),
   };
 }
 

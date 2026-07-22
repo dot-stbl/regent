@@ -328,6 +328,14 @@ export const RegentConfigSchema = z
       })
       .strict()
       .default({ concurrency: 4 }),
+    /**
+     * Override the user-global rules pickup directory. When set, the
+     * loader reads rule files from this path instead of the legacy
+     * `~/.agents/rules/` default (and the legacy `STBL_REGENT_GLOBAL_RULES_PATH`
+     * env var). Set in the user-global config (`~/.config/regent/config.json`)
+     * to relocate your house-rules pickup without per-repo config.
+     */
+    globalRulesPath: z.string().min(1).optional(),
   })
   .strict()
   .default({

@@ -1327,6 +1327,20 @@ if (process.argv.slice(2).includes('--llm')) {
   process.exit(0);
 }
 
+// Ensure the user-global layout exists before any subcommand runs.
+// Best-effort — a read-only FS or permission-denied must not crash
+// the CLI (issue #85). The loader is tolerant of missing config
+// (silent fallback), so a failed ensureLayout only degrades UX
+// (e.g. no log dir), never correctness.
+try {
+  const { resolveLayout: resolveXdgLayout, ensureLayout: ensureXdgLayout } = await import(
+    './fs/layout.js'
+  );
+  ensureXdgLayout(resolveXdgLayout());
+} catch {
+  // Swallow — keep CLI alive even if first-run setup fails.
+}
+
 program.parseAsync(process.argv).catch(async (err: unknown) => {
   const e = err as { code?: string; message?: string };
   if (e.code === 'commander.helpDisplayed' || e.code === 'commander.help' || e.code === 'commander.versionDisplayed') {

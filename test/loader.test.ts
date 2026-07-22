@@ -131,3 +131,139 @@ describe('loadRules', () => {
     expect(overridden?.spec.severity).toBe('warning'); // overridden
   });
 });
+
+describe('loadRules — user-global rules pickup (issue #85)', () => {
+  /**
+   * Build a tiny fake repo with:
+   *   - `.regentrc.js` setting `globalRulesPath` (or no field, falling
+   *     back to the env var).
+   *   - a user-global rules dir holding a single `.lint.ts` rule.
+   *
+   * Returns the repoRoot and the path to the user-global dir.
+   */
+  function buildRepo(opts: {
+    readonly globalRulesPath?: string;
+    readonly envGlobalRulesPath?: string;
+    readonly globalRuleId?: string;
+    readonly globalRulePattern?: string;
+  }): { repoRoot: string; userGlobalDir: string } {
+    const repoRoot = join(tmpdir(), `regent-loader-global-${Date.now()}-${Math.random()}`);
+    const userGlobalDir = opts.globalRulesPath ?? join(tmpdir(), `regent-global-${Date.now()}-${Math.random()}`);
+    mkdirSync(repoRoot, { recursive: true });
+    mkdirSync(userGlobalDir, { recursive: true });
+
+    const globalRuleId = opts.globalRuleId ?? 'tessera.global-rule';
+    const globalRulePattern = opts.globalRulePattern ?? 'global-thing';
+
+    // Place one rule file at the user-global dir.
+    writeFileSync(
+      join(userGlobalDir, 'tessera.global-rule.lint.ts'),
+      `export default {
+  id: '${globalRuleId}',
+  severity: 'warning',
+  pattern: '${globalRulePattern}',
+  globs: ['**/*.cs'],
+  message: 'from user-global rules pickup',
+};`,
+    );
+
+    // .regentrc.js sets (or omits) globalRulesPath.
+    const configBody = opts.globalRulesPath !== undefined
+      ? `export default { globalRulesPath: ${JSON.stringify(opts.globalRulesPath)} };`
+      : `export default {};`;
+    writeFileSync(join(repoRoot, '.regentrc.js'), configBody);
+
+    return { repoRoot, userGlobalDir };
+  }
+
+  function cleanup(...dirs: string[]): void {
+    for (const d of dirs) {
+      rmSync(d, { recursive: true, force: true });
+    }
+  }
+
+  it('uses config.globalRulesPath when set', async () => {
+    const userGlobalDir = join(tmpdir(), `regent-global-${Date.now()}-${Math.random()}`);
+    const { repoRoot } = buildRepo({ globalRulesPath: userGlobalDir });
+    try {
+      const result = await loadRules({ repoRoot, skipLocal: true });
+      const ids = result.rules.map((r) => r.spec.id);
+      expect(ids).toContain('tessera.global-rule');
+      expect(result.resolvedConfig.globalRulesPath).toBe(userGlobalDir);
+    } finally {
+      cleanup(repoRoot, userGlobalDir);
+    }
+  });
+
+  it('falls back to STBL_REGENT_GLOBAL_RULES_PATH (legacy env var)', async () => {
+    const { repoRoot, userGlobalDir } = buildRepo({});
+    const prevEnv = process.env['STBL_REGENT_GLOBAL_RULES_PATH'];
+    process.env['STBL_REGENT_GLOBAL_RULES_PATH'] = userGlobalDir;
+    try {
+      const result = await loadRules({ repoRoot, skipLocal: true });
+      const ids = result.rules.map((r) => r.spec.id);
+      expect(ids).toContain('tessera.global-rule');
+    } finally {
+      if (prevEnv === undefined) {
+        delete process.env['STBL_REGENT_GLOBAL_RULES_PATH'];
+      } else {
+        process.env['STBL_REGENT_GLOBAL_RULES_PATH'] = prevEnv;
+      }
+      cleanup(repoRoot, userGlobalDir);
+    }
+  });
+
+  it('config.globalRulesPath wins over STBL_REGENT_GLOBAL_RULES_PATH (precedence)', async () => {
+    // Two separate dirs: the config points at one; the env var points
+    // at the other. Each holds a distinct rule. The config wins.
+    const configuredDir = join(tmpdir(), `regent-global-cfg-${Date.now()}`);
+    const envDir = join(tmpdir(), `regent-global-env-${Date.now()}`);
+    mkdirSync(configuredDir, { recursive: true });
+    mkdirSync(envDir, { recursive: true });
+
+    const repoRoot = join(tmpdir(), `regent-loader-precedence-${Date.now()}`);
+    mkdirSync(repoRoot, { recursive: true });
+
+    writeFileSync(
+      join(configuredDir, 'tessera.from-config.lint.ts'),
+      `export default {
+  id: 'tessera.from-config',
+  severity: 'warning',
+  pattern: 'from-config',
+  globs: ['**/*.cs'],
+  message: 'from config path',
+};`,
+    );
+    writeFileSync(
+      join(envDir, 'tessera.from-env.lint.ts'),
+      `export default {
+  id: 'tessera.from-env',
+  severity: 'warning',
+  pattern: 'from-env',
+  globs: ['**/*.cs'],
+  message: 'from env path',
+};`,
+    );
+
+    writeFileSync(
+      join(repoRoot, '.regentrc.js'),
+      `export default { globalRulesPath: ${JSON.stringify(configuredDir)} };`,
+    );
+
+    const prevEnv = process.env['STBL_REGENT_GLOBAL_RULES_PATH'];
+    process.env['STBL_REGENT_GLOBAL_RULES_PATH'] = envDir;
+    try {
+      const result = await loadRules({ repoRoot, skipLocal: true });
+      const ids = result.rules.map((r) => r.spec.id);
+      expect(ids).toContain('tessera.from-config');
+      expect(ids).not.toContain('tessera.from-env');
+    } finally {
+      if (prevEnv === undefined) {
+        delete process.env['STBL_REGENT_GLOBAL_RULES_PATH'];
+      } else {
+        process.env['STBL_REGENT_GLOBAL_RULES_PATH'] = prevEnv;
+      }
+      cleanup(repoRoot, configuredDir, envDir);
+    }
+  });
+});

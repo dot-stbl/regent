@@ -88,11 +88,16 @@ export async function loadRules(options: LoaderOptions): Promise<LoaderRuleSet> 
   const fileTransformRules: CompiledTransformRule[] = [];
   const seen = new Set<string>();
 
-  // 1. User-global rule files. Default: `~/.agents/rules/`. Overridable
-  // via `STBL_REGENT_GLOBAL_RULES_PATH` for tests and sandboxed runs
-  // that need to point at a fresh, empty directory rather than the
-  // developer's house-rules pickup.
-  const userGlobalRoot = process.env['STBL_REGENT_GLOBAL_RULES_PATH']
+  // 1. User-global rule files. Precedence (high → low):
+  //    a. `config.globalRulesPath` (set in `~/.config/regent/config.json`,
+  //       see issue #85). The user-global layer reads it via the
+  //       normal merge pipeline — overriding the legacy defaults below.
+  //    b. `STBL_REGENT_GLOBAL_RULES_PATH` env var (legacy, kept for
+  //       back-compat with #72).
+  //    c. Hardcoded default `~/.agents/rules/`.
+  // The legacy env var is documented as deprecated in CONTRIBUTING.md.
+  const userGlobalRoot = config.globalRulesPath
+    ?? process.env['STBL_REGENT_GLOBAL_RULES_PATH']
     ?? join(
       process.env['HOME'] ?? process.env['USERPROFILE'] ?? '~/.agents',
       '.agents',

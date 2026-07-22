@@ -3,23 +3,23 @@
 // plus a `regent` field in `package.json`.
 //
 // Multi-layer: a single project may have BOTH a global config
-// (`~/.config/regent/config.*` for user-wide defaults) and a project
+// (`~/.config/regent/config.json` for user-wide defaults) and a project
 // config (`<repo>/.regentrc.*`). Both are loaded separately so they
 // layer through the merge pipeline at distinct precedence levels.
+//
+// The global layer is JSON-only (`config.json`) — kept simple and
+// editor-friendly. Project configs stay TS/JS via cosmiconfig.
 
-import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
 
 import { cosmiconfig } from 'cosmiconfig';
 import { load as parse, YAMLException } from 'js-yaml';
 
+import { resolveLayout } from '../../fs/layout.js';
 import { safeParseConfig } from '../schema.js';
 import type { RegentConfig } from '../schema.js';
 
 const MODULE_NAME = 'regent';
-
-const GLOBAL_CONFIG_SUBDIR = '.config/regent';
 
 const fileExplorer = cosmiconfig(MODULE_NAME, {
   searchPlaces: [
@@ -167,9 +167,10 @@ export async function loadProjectConfigLayer(cwd: string): Promise<LoadedConfigL
 }
 
 /**
- * Load the user-global config: `~/.config/regent/config.{ts,js,json}`.
- * Applied as a layer LOWER than the project config — same `loadProjectConfig`
- * search strategy but rooted at `$HOME/.config/regent`.
+ * Load the user-global config: `<configDir>/config.json` per
+ * `resolveLayout()`. JSON-only (TS stays project-local via
+ * `.regentrc.ts`). Applied as a layer LOWER than the project config
+ * — user-wide defaults that any project can override.
  */
 export async function loadGlobalConfig(_cwd: string): Promise<RegentConfig | null> {
   const layer = await loadGlobalConfigLayer(_cwd);
@@ -180,15 +181,39 @@ export async function loadGlobalConfig(_cwd: string): Promise<RegentConfig | nul
  * Like `loadGlobalConfig` but also returns the absolute file path.
  */
 export async function loadGlobalConfigLayer(_cwd: string): Promise<LoadedConfigLayer | null> {
-  const home = process.env['HOME'] ?? process.env['USERPROFILE'];
-  if (!home) {
-    return null;
+  const layout = resolveLayout();
+  let text: string;
+  try {
+    text = await readFile(layout.configFile, 'utf8');
+  } catch (err) {
+    if ((err as { code?: string }).code === 'ENOENT') {
+      // No config file → silent fallback. Default behavior preserved.
+      return null;
+    }
+    throw err;
   }
-  const globalRoot = join(home, GLOBAL_CONFIG_SUBDIR);
-  if (!existsSync(globalRoot)) {
-    return null;
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text);
+  } catch (err) {
+    throw new Error(
+      `config parse failed at ${layout.configFile}: ${(err as Error).message}`,
+      { cause: err },
+    );
   }
-  return loadProjectConfigLayer(globalRoot);
+  // config.json can be either the config object directly, or a
+  // `{ "regent": {...} }` envelope (matches cosmiconfig's
+  // `package.json#regent` convention). Take whichever is present.
+  const candidate = (raw as Record<string, unknown>)['regent']
+    ?? (raw as Record<string, unknown>)['config']
+    ?? raw;
+  const parsed = safeParseConfig(candidate);
+  if (!parsed.ok) {
+    throw new Error(
+      `user-global config validation failed at ${layout.configFile}: ${parsed.error}`,
+    );
+  }
+  return { config: parsed.value, path: layout.configFile };
 }
 
 /**

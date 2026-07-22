@@ -29,5 +29,7 @@ export function defaultConfig(): RegentConfig {
     log: { level: 'info', format: 'text' },
     output: { color: true, contextBuffer: 3 },
     runner: { concurrency: 4 },
+    // globalRulesPath intentionally absent — undefined means
+    // "no override; use the legacy default in the loader".
   };
 }
