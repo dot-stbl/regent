@@ -34,7 +34,9 @@ import {
 } from './loader/plugin-extends.js';
 import {
   materializeRule,
+  snapshotParameterisedRule,
   validateConfigureKeys,
+  type ParameterisedRuleSnapshot,
 } from './loader/parameterize.js';
 import type { RuleFixSpec } from './types.js';
 import { validateFixSpec } from './types.js';
@@ -60,6 +62,15 @@ export interface LoaderOptions {
 
 export interface LoaderRuleSet {
   readonly rules: readonly CompiledRule[];
+  /**
+   * Pre-materialisation snapshots of every parameterised rule
+   * (#33 + #33c). The live `params` schema is dropped from the
+   * materialised `RuleSpec` in `rules[]`; this list keeps the
+   * pre-materialisation shape so `regent describe` can render the
+   * JSON Schema and a sample `rules.configure` block. Empty for
+   * rule sets with no parameterised rules.
+   */
+  readonly parameterisedRules: readonly ParameterisedRuleSnapshot[];
   /** AST-kind rules (ast-grep), run by the runner alongside regex rules. */
   readonly astRules: readonly CompiledAstRule[];
   /**
@@ -280,8 +291,18 @@ export async function loadRules(options: LoaderOptions): Promise<LoaderRuleSet> 
     allRules.map((r) => r.spec.id),
     config.rules.configure,
   );
+  // Capture parameterised-rule snapshots BEFORE materialisation
+  // drops the `params` field from each spec. `regent describe`
+  // (#33c) uses this list to introspect the rule's `params` schema
+  // for JSON Schema emission + sample `rules.configure` rendering.
+  const parameterisedSnapshots: ParameterisedRuleSnapshot[] = [];
   for (let i = 0; i < allRules.length; i++) {
-    allRules[i] = materializeRule(allRules[i]!, config.rules.configure);
+    const rule = allRules[i]!;
+    const snapshot = snapshotParameterisedRule(rule);
+    if (snapshot !== null) {
+      parameterisedSnapshots.push(snapshot);
+    }
+    allRules[i] = materializeRule(rule, config.rules.configure);
   }
 
   // 5. Disable — remove by id
@@ -314,6 +335,7 @@ export async function loadRules(options: LoaderOptions): Promise<LoaderRuleSet> 
 
   return {
     rules: allRules,
+    parameterisedRules: parameterisedSnapshots,
     astRules,
     transformRules,
     acceptList,

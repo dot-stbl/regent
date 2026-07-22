@@ -116,6 +116,28 @@ function resolveOptional(
 }
 
 /**
+ * Per-rule parameterisation snapshot — what `describe` (`#33c`)
+ * introspects. Captured during step 4b so `regent describe` can
+ * emit the JSON Schema of the rule's `params` and a sample
+ * `rules.configure` block *after* the loader has already dropped
+ * the live `params` schema from the materialised `RuleSpec`.
+ *
+ * The loader emits one entry per rule that *had* `params` (whether
+ * or not the rule was successfully materialised); if materialisation
+ * throws, the snapshot for that rule is omitted and the error
+ * surfaces separately via `loadRules()`'s rejection.
+ */
+export interface ParameterisedRuleSnapshot {
+  readonly id: string;
+  readonly source: string;
+  readonly origin: string | undefined;
+  readonly severity: RuleSpec['severity'];
+  readonly globs: readonly string[];
+  readonly rationale: string | undefined;
+  readonly params: z.ZodTypeAny;
+}
+
+/**
  * Validate that every key in `configure` maps to a rule id in the
  * merged set. Throws `ParameterizeError` naming the first unknown
  * id (deterministic order — keys are sorted). Empty `configure`
@@ -147,7 +169,33 @@ export function validateConfigureKeys(
  * a `ParameterizedRuleSpec` (detected via the `params` field).
  * Non-parameterised rules pass through unchanged — the loader
  * otherwise treats detect / fix / ast / transform identically.
+ *
+ * The companion snapshot (`ParameterisedRuleSnapshot`) is built
+ * before materialisation so consumers like `regent describe` can
+ * introspect the rule's live `params` schema after the loader
+ * drops it from the `RuleSpec`. Returning `null` from this helper
+ * signals "non-parameterised"; returning a snapshot signals
+ * "parameterised; here's its pre-materialisation shape".
  */
+export function snapshotParameterisedRule(
+  rule: CompiledRule,
+): ParameterisedRuleSnapshot | null {
+  const raw = rule.spec as unknown as { readonly params?: z.ZodTypeAny };
+  if (raw.params === undefined || raw.params === null) {
+    return null;
+  }
+  const spec = rule.spec as unknown as ParameterizedRuleSpec<z.ZodTypeAny>;
+  return {
+    id: spec.id,
+    source: rule.source,
+    origin: spec.source,
+    severity: spec.severity,
+    globs: spec.globs,
+    rationale: spec.rationale,
+    params: spec.params,
+  };
+}
+
 export function materializeRule(
   rule: CompiledRule,
   configure: Readonly<Record<string, unknown>>,

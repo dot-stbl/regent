@@ -46,6 +46,7 @@ import type { AcceptEntry, CompiledRule, Finding, RunResult, RunnerScope, Severi
 import type { CompiledAstRule } from './kinds/ast.js';
 import { renderBanner } from './cli/banner.js';
 import { registerFixCommand } from './cli/fix.js';
+import { registerDescribeCommand } from './cli/describe.js';
 import { loadLlmText } from './llm.js';
 import { routeLlm } from './llm-router.js';
 import { renderDetectSchemaJson, renderFixRuleSchemaJson } from './llm-schema.js';
@@ -226,6 +227,7 @@ program
   });
 
 registerFixCommand(program);
+registerDescribeCommand(program);
 
 program
   .command('cache')
