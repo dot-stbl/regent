@@ -84,12 +84,16 @@ export async function loadRules(options: LoaderOptions): Promise<LoaderRuleSet> 
   const fileTransformRules: CompiledTransformRule[] = [];
   const seen = new Set<string>();
 
-  // 1. User-global rule files
-  const userGlobalRoot = join(
-    process.env['HOME'] ?? process.env['USERPROFILE'] ?? '~/.agents',
-    '.agents',
-    'rules',
-  );
+  // 1. User-global rule files. Default: `~/.agents/rules/`. Overridable
+  // via `STBL_REGENT_GLOBAL_RULES_PATH` for tests and sandboxed runs
+  // that need to point at a fresh, empty directory rather than the
+  // developer's house-rules pickup.
+  const userGlobalRoot = process.env['STBL_REGENT_GLOBAL_RULES_PATH']
+    ?? join(
+      process.env['HOME'] ?? process.env['USERPROFILE'] ?? '~/.agents',
+      '.agents',
+      'rules',
+    );
   if (existsSync(userGlobalRoot)) {
     for (const r of await loadRuleFilesUnder(userGlobalRoot, 'global')) {
       if (!seen.has(r.spec.id)) {

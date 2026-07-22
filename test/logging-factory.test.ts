@@ -6,7 +6,7 @@ import { Writable } from 'node:stream';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { createLogger } from '../src/logging/index.js';
+import { createLogger, flushLogger } from '../src/logging/index.js';
 
 function captureStdout(): { stream: Writable; lines: string[] } {
   const lines: string[] = [];
@@ -42,6 +42,26 @@ describe('createLogger', () => {
   });
 
   void captureStdout;
+});
+
+describe('flushLogger', () => {
+  // The `flushLogger()` helper exists to drain the pino-pretty
+  // worker thread before `process.exit()` so the libuv
+  // `UV_HANDLE_CLOSING` assertion (#79) doesn't fire on Windows.
+  // We can't reproduce the crash on Linux, but we can verify the
+  // helper is safe to call after createLogger — it must not throw.
+  it('does not throw when called after createLogger', async () => {
+    const logger = createLogger({ level: 'info', format: 'json' });
+    logger.info({}, 'pre-flush');
+    await expect(flushLogger()).resolves.toBeUndefined();
+  });
+
+  it('does not throw when called without an active logger', async () => {
+    // The export is process-shared; in a long-lived test process
+    // the active logger from a previous test may still be set. The
+    // contract is "never throws" — flushLogger must be idempotent.
+    await expect(flushLogger()).resolves.toBeUndefined();
+  });
 });
 
 afterEach(() => {

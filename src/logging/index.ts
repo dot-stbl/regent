@@ -19,6 +19,18 @@ export interface CreateLoggerOptions {
 }
 
 /**
+ * The active logger's underlying stream. Tracked so that
+ * `flushAndExit()` / `flushLogger()` can call `.end()` on it before
+ * the process exits, otherwise the pino-pretty worker thread can be
+ * left in CLOSING state on Windows and trigger a libuv
+ * `UV_HANDLE_CLOSING` assertion during shutdown. See #79.
+ */
+let activeStream: { end?: () => void; destroy?: (cb?: (err?: Error) => void) => void } | null = null;
+
+const FLUSH_SETTLE_MS = 100;
+const FLUSH_TIMEOUT_MS = 500;
+
+/**
  * Build a logger with the given level + output format.
  *
  * All logs go to **stderr** (findings/reports stay on stdout). In
@@ -47,10 +59,11 @@ export function createLogger(opts: CreateLoggerOptions): Logger {
   const destination = pino.destination({ dest: 2, sync: true });
 
   if (opts.format === 'json') {
+    activeStream = destination;
     return pino(baseOptions, destination);
   }
 
-  return pino(
+  const logger = pino(
     {
       ...baseOptions,
       transport: {
@@ -66,6 +79,14 @@ export function createLogger(opts: CreateLoggerOptions): Logger {
     },
     destination,
   );
+  // For `pino(options, destination)` the *outer* target is the
+  // destination we passed in; the transport (`pino-pretty`) is the
+  // inner worker stream. Pino's transport endpoint is reachable via
+  // the `pino.stream` symbol on the logger — but reading the
+  // user-supplied destination is enough for `.end()` here because
+  // we just need to flush the writer chain.
+  activeStream = destination;
+  return logger;
 }
 
 /**
@@ -73,4 +94,48 @@ export function createLogger(opts: CreateLoggerOptions): Logger {
  */
 export function scopedLogger(parent: Logger, scope: string): Logger {
   return parent.child({ scope });
+}
+
+/**
+ * Flush the active logger's underlying stream and wait briefly for
+ * the worker thread to drain. This is the workaround for the libuv
+ * `UV_HANDLE_CLOSING` assertion that fires on Windows when
+ * `process.exit()` is called while the pino-pretty worker thread is
+ * still in CLOSING state (#79).
+ *
+ * Safe to call repeatedly; safe to call when no logger is active.
+ */
+export async function flushLogger(): Promise<void> {
+  if (activeStream) {
+    try {
+      activeStream.end?.();
+    } catch {
+      // best-effort — the stream may already be closed
+    }
+  }
+  // Give the worker thread a chance to handle the end sentinel and
+  // close its stdio handles. The settle window is short on purpose:
+  // most CLI invocations are < 100ms and we don't want to add
+  // visible latency. The timeout is a safety net so we never hang
+  // forever in shutdown.
+  await new Promise<void>((resolve) => {
+    let done = false;
+    const finish = (): void => {
+      if (done) return;
+      done = true;
+      resolve();
+    };
+    setTimeout(finish, FLUSH_SETTLE_MS);
+    setTimeout(finish, FLUSH_TIMEOUT_MS);
+  });
+}
+
+/**
+ * Flush the active logger, then exit with the given code. Use this
+ * instead of `process.exit(code)` in CLI action handlers to avoid
+ * the Windows shutdown crash (#79).
+ */
+export async function flushAndExit(code: number): Promise<never> {
+  await flushLogger();
+  process.exit(code);
 }
