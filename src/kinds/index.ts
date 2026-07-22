@@ -7,6 +7,18 @@ export {
   type ParameterizedRuleSpec,
 } from './parameterized.js';
 export {
+  defineFormat,
+  type FormatRuleSpec,
+} from './format.js';
+export {
+  defineDelegate,
+  type DelegateRuleSpec,
+} from './delegate.js';
+export type {
+  Normalize,
+  ToolProcessResult,
+} from './process.js';
+export {
   defineTransformRule,
   type CompiledTransformRule,
 } from './transform.js';

@@ -13,6 +13,8 @@ export function defaultConfig(): RegentConfig {
       fix: [],
       ast: [],
       transform: [],
+      format: [],
+      delegate: [],
       extends: [],
       disable: [],
       override: {},

@@ -158,6 +158,56 @@ const DetectRuleSpecSchema = z
   })
   .passthrough();
 
+/**
+ * Inline `defineFormat` spec for `.regentrc.ts` `rules.format[]`
+ * entries (#34). Mirrors the function-typed surface of
+ * `DetectRuleSpecSchema` (parametrised field per #33c) so the
+ * schema accepts both static `string[]` and function-form argv
+ * builders. `.passthrough()` keeps the schema forward-compatible
+ * with future optional fields. Discovery + bundle plumbing land in
+ * 34c.
+ */
+const FormatRuleSpecSchema = z
+  .object({
+    id: z.string().min(1),
+    severity: SeveritySchema,
+    params: z.unknown().optional(),
+    detect: z.union([z.function(), z.array(z.string())]),
+    fix: z.union([z.function(), z.array(z.string())]).optional(),
+    // `normalize` is a runtime function (ToolProcessResult → Finding[]);
+    // zod can't type-validate it. The loader runtime-checks that
+    // the field is a function before accepting the spec (see 34b's
+    // `safeInvokeDelegate` wrapper).
+    normalize: z.unknown(),
+    source: z.string().optional(),
+    rationale: z.string().optional(),
+    review: RuleReviewSpecSchema.optional(),
+    dependsOn: z.array(z.string().min(1)).readonly().optional(),
+    converges: z.boolean().optional(),
+  })
+  .passthrough();
+
+/**
+ * Inline `defineDelegate` spec for `.regentrc.ts`
+ * `rules.delegate[]` entries (#34). Read-only counterpart to
+ * `FormatRuleSpecSchema`: no `fix` (delegates are observational).
+ */
+const DelegateRuleSpecSchema = z
+  .object({
+    id: z.string().min(1),
+    severity: SeveritySchema,
+    params: z.unknown().optional(),
+    detect: z.union([z.function(), z.array(z.string())]),
+    // `normalize` is a runtime function (see 34b).
+    normalize: z.unknown(),
+    source: z.string().optional(),
+    rationale: z.string().optional(),
+    review: RuleReviewSpecSchema.optional(),
+    dependsOn: z.array(z.string().min(1)).readonly().optional(),
+    converges: z.boolean().optional(),
+  })
+  .passthrough();
+
 const FixRuleSpecSchema = z
   .object({
     id: z.string().min(1),
@@ -249,6 +299,22 @@ const RulesSectionSchema = z
     fix: z.array(FixRuleSpecSchema).readonly().default([]),
     ast: z.array(AstRuleSpecSchema).readonly().default([]),
     transform: z.array(TransformRuleSpecSchema).readonly().default([]),
+    /**
+     * Format specs (#34a) — file-mutating tools the runner shells
+     * out to (prettier --write, dotnet format, eslint --fix, ...).
+     * `regent check` runs the `detect` argv (dry-run); `regent fix`
+     * also runs `fix` (mutating). Discovery + bundle plumbing land
+     * in 34c.
+     */
+    format: z.array(FormatRuleSpecSchema).readonly().default([]),
+    /**
+     * Delegate specs (#34a) — read-only analysis tools the runner
+     * shells out to (eslint, ruff check, tsc --noEmit, ...). There
+     * is no `fix` (delegates are observational). Both `regent check`
+     * and `regent fix` run `detect` so users see new findings the
+     * format step exposes.
+     */
+    delegate: z.array(DelegateRuleSpecSchema).readonly().default([]),
     // `extends` accepts paths, globs, or arrays of inline rules.
     // Resolution semantics are unchanged from v0.1; the schema just
     // surfaces the union type.
@@ -280,6 +346,8 @@ const RulesSectionSchema = z
     fix: [],
     ast: [],
     transform: [],
+    format: [],
+    delegate: [],
     extends: [],
     disable: [],
     override: {},
@@ -347,6 +415,8 @@ export const RegentConfigSchema = z
       fix: [],
       ast: [],
       transform: [],
+      format: [],
+      delegate: [],
       extends: [],
       disable: [],
       override: {},
