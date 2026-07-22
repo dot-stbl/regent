@@ -190,6 +190,88 @@ regent llm schema detect
 regent llm examples csharp
 ```
 
+## Writing a fix
+
+A rule's optional `fix` attachment tells `regent fix` how to auto-rewrite
+the matched substring. The shape is a discriminated union of four
+`RuleFixSpec` kinds (`replace` / `delete-line` / `function` /
+`guidance-only`), each with a `safety: 'safe' | 'suggested'` lane that
+controls whether the CLI auto-applies or surfaces for review.
+
+### `kind: 'replace'` — match → substitute (declarative)
+
+```ts
+fix: { kind: 'replace', safety: 'safe', title: 'csharp.swap', template: '$2-$1' }
+```
+
+The `template` may be empty (delete the match). Capture groups from
+`pattern` expand via `$1`, `$2`, `${name}`; `$$` is a literal `$`.
+Unresolved references (e.g. `$99` when only 3 groups exist) are
+preserved verbatim in the output so the failure is visible in the diff.
+
+### `kind: 'delete-line'` — drop the matched line
+
+```ts
+fix: { kind: 'delete-line', safety: 'safe', title: 'meta.drop' }
+```
+
+Drops the matched line + trailing `\n`. `alsoDeleteMatching` (RE2) drops
+a paired line (e.g. `#endregion` next to `#region`).
+
+### `kind: 'function'` — programmatic, for declarative-incapable edits
+
+```ts
+fix: {
+  kind: 'function',
+  safety: 'safe',
+  title: 'csharp.exceptions.brace-style',
+  apply: ({ content }) => {
+    /* pure + deterministic — see "Authoring a fix" in CONTRIBUTING.md */
+  },
+}
+```
+
+Returns `FixEdit[]` (byte spans + replacements) or `null` to decline.
+Must be **pure + deterministic** (no I/O, no time / random, no global
+state) so the fixpoint loop + cache are reproducible. Function-form
+edits apply only with `--unsafe`.
+
+### `kind: 'guidance-only'` — surface, never apply
+
+```ts
+fix: { kind: 'guidance-only', safety: 'suggested', title: 'csharp.refactor', guidance: '...' }
+```
+
+No edit produced. The `title` + `guidance` land in the agent's
+`suggested[]` block; the agent (or human) applies judgement. The only
+valid kind for `safety: 'suggested'` without explicit `--unsafe`.
+
+### Safety lanes
+
+| `safety` | `regent fix` default | With `--unsafe` |
+|----------|----------------------|-----------------|
+| `'safe'` | auto-applies | auto-applies |
+| `'suggested'` + `replace` / `delete-line` / `function` | surfaces in `suggested[]` | applies |
+| `'suggested'` + `guidance-only` | surfaces in `suggested[]` | surfaces in `suggested[]` (never applies) |
+
+Keep `safe` small and high-value (mechanically semantics-preserving
+edits); prefer `suggested` for anything that wants a review pass.
+
+### `converges?: boolean` — opt-in to the fixpoint loop
+
+`converges: true` opts the rule into `applyFixes`'s re-scan: after
+each pass, the engine re-detects the changed file and re-applies any
+new findings whose rule also opted in. Default `false`. Mark `true`
+ONLY for mechanically idempotent fixes (`delete-line`, fixed-template
+`replace`); chained edits that re-trigger detection will loop until
+`maxPasses` (default 5) is exhausted and `ApplyFixesConvergenceError`
+fires.
+
+The full long-form guide — templates, safety↔kind invariants, the
+pure-deterministic contract, and how to add a `fixed.<ext>` to a
+shipped fixture — lives in
+[`CONTRIBUTING.md` "Authoring a fix"](CONTRIBUTING.md#authoring-a-fix).
+
 ## Agent workflow
 
 ```sh

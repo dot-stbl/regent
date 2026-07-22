@@ -101,6 +101,27 @@ describe('llm-router', () => {
     }
   });
 
+  it('routes [authoring, fix] covers the v1 fix surface (4 kinds + safety + $1)', () => {
+    // P9 of the fix-mode epic (#66): the authoring/fix doc must
+    // document the four RuleFixSpec kinds + the safety lane +
+    // template syntax, so agents writing v1 fixes see the full
+    // surface from `regent llm authoring fix`.
+    const r = routeLlm(['authoring', 'fix']);
+    expect(r.kind).toBe('ok');
+    if (r.kind !== 'ok') {
+      return;
+    }
+    // The four kinds named somewhere in the prose.
+    expect(r.content).toContain('replace');
+    expect(r.content).toContain('delete-line');
+    expect(r.content).toContain('function');
+    expect(r.content).toContain('guidance-only');
+    // Safety lane terminology.
+    expect(r.content).toContain('safety');
+    // Template syntax example.
+    expect(r.content).toContain('$1');
+  });
+
   it('routes [schema, detect] to schema/detect.md', () => {
     const r = routeLlm(['schema', 'detect']);
     expect(r.kind).toBe('ok');
@@ -153,6 +174,19 @@ describe('regent llm CLI', () => {
     const r = await runCli(['llm', 'authoring', 'detect']);
     expect(r.code).toBe(0);
     expect(r.stdout).toContain('Authoring detect rules');
+  });
+
+  it('regent llm authoring fix prints the v1 fix guide (P9 #66)', async () => {
+    // P9 acceptance: spawning `regent llm authoring fix` produces
+    // prose covering the four kinds + safety + template syntax.
+    const r = await runCli(['llm', 'authoring', 'fix']);
+    expect(r.code).toBe(0);
+    expect(r.stdout).toContain('replace');
+    expect(r.stdout).toContain('delete-line');
+    expect(r.stdout).toContain('function');
+    expect(r.stdout).toContain('guidance-only');
+    expect(r.stdout).toContain('safety');
+    expect(r.stdout).toContain('$1');
   });
 
   it('regent llm examples csharp prints the csharp example list', async () => {
