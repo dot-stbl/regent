@@ -88,13 +88,23 @@ afterAll(() => {
 describe('loadRules', () => {
   it('loads no rules when no config and no examples exist', async () => {
     // Use a fully-isolated tmpdir so cosmiconfig walks up find no
-    // .regentrc anywhere up to root.
+    // .regentrc anywhere up to root. Also repoint the user-global
+    // layer at its own fresh tmpdir so the developer's house-rules
+    // pickup under `~/.agents/rules/` doesn't leak into the
+    // "empty config" assertion.
     const isolated = join(tmpdir(), `regent-loader-empty-${Date.now()}`);
     mkdirSync(isolated, { recursive: true });
+    const previousGlobal = process.env['STBL_REGENT_GLOBAL_RULES_PATH'];
+    process.env['STBL_REGENT_GLOBAL_RULES_PATH'] = isolated;
     try {
       const result = await loadRules({ repoRoot: isolated, skipLocal: true });
       expect(result.rules).toHaveLength(0);
     } finally {
+      if (previousGlobal === undefined) {
+        delete process.env['STBL_REGENT_GLOBAL_RULES_PATH'];
+      } else {
+        process.env['STBL_REGENT_GLOBAL_RULES_PATH'] = previousGlobal;
+      }
       rmSync(isolated, { recursive: true, force: true });
     }
   });
