@@ -32,6 +32,12 @@ import {
   isNpmPackageSpec,
   resolveExtendsNpmPackage,
 } from './loader/plugin-extends.js';
+import {
+  materializeRule,
+  snapshotParameterisedRule,
+  validateConfigureKeys,
+  type ParameterisedRuleSnapshot,
+} from './loader/parameterize.js';
 import type { RuleFixSpec } from './types.js';
 import { validateFixSpec } from './types.js';
 import type {
@@ -56,6 +62,15 @@ export interface LoaderOptions {
 
 export interface LoaderRuleSet {
   readonly rules: readonly CompiledRule[];
+  /**
+   * Pre-materialisation snapshots of every parameterised rule
+   * (#33 + #33c). The live `params` schema is dropped from the
+   * materialised `RuleSpec` in `rules[]`; this list keeps the
+   * pre-materialisation shape so `regent describe` can render the
+   * JSON Schema and a sample `rules.configure` block. Empty for
+   * rule sets with no parameterised rules.
+   */
+  readonly parameterisedRules: readonly ParameterisedRuleSnapshot[];
   /** AST-kind rules (ast-grep), run by the runner alongside regex rules. */
   readonly astRules: readonly CompiledAstRule[];
   /**
@@ -265,6 +280,31 @@ export async function loadRules(options: LoaderOptions): Promise<LoaderRuleSet> 
     }
   }
 
+  // 4b. Parameterize (#33b) — materialise `defineParameterizedRule`
+  // specs into plain-string `RuleSpec` shapes using the merged
+  // `rules.configure` map. Validation of unknown `configure` keys
+  // runs before per-rule materialisation so the error names the
+  // bad key, not whichever rule happens to fail first. The result
+  // is `RuleSpec`-only — downstream steps (disable / override /
+  // accept / runner) are otherwise unchanged.
+  validateConfigureKeys(
+    allRules.map((r) => r.spec.id),
+    config.rules.configure,
+  );
+  // Capture parameterised-rule snapshots BEFORE materialisation
+  // drops the `params` field from each spec. `regent describe`
+  // (#33c) uses this list to introspect the rule's `params` schema
+  // for JSON Schema emission + sample `rules.configure` rendering.
+  const parameterisedSnapshots: ParameterisedRuleSnapshot[] = [];
+  for (let i = 0; i < allRules.length; i++) {
+    const rule = allRules[i]!;
+    const snapshot = snapshotParameterisedRule(rule);
+    if (snapshot !== null) {
+      parameterisedSnapshots.push(snapshot);
+    }
+    allRules[i] = materializeRule(rule, config.rules.configure);
+  }
+
   // 5. Disable — remove by id
   for (const id of config.rules.disable) {
     const idx = allRules.findIndex((r) => r.spec.id === id);
@@ -295,6 +335,7 @@ export async function loadRules(options: LoaderOptions): Promise<LoaderRuleSet> 
 
   return {
     rules: allRules,
+    parameterisedRules: parameterisedSnapshots,
     astRules,
     transformRules,
     acceptList,

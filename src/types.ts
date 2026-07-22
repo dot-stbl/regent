@@ -425,6 +425,15 @@ export interface RunResult {
 /** Result of loading rules — extended with accept-list (used by runner). */
 export interface LoaderRuleSet {
   readonly rules: readonly CompiledRule[];
+  /**
+   * Pre-materialisation snapshots of every parameterised rule
+   * (#33 + #33c). The live `params` schema is dropped from the
+   * materialised `RuleSpec` in `rules[]`; this list keeps the
+   * pre-materialisation shape so `regent describe` can render the
+   * JSON Schema and a sample `rules.configure` block. Empty for
+   * rule sets with no parameterised rules.
+   */
+  readonly parameterisedRules: readonly import('./loader/parameterize.js').ParameterisedRuleSnapshot[];
   /** Merged accept-list from layer 3 (repo) + layer 4 (local). */
   readonly acceptList: readonly AcceptEntry[];
   readonly totalSourceLayers: number;

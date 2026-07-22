@@ -130,22 +130,33 @@ const RuleFixSpecSchema = z.discriminatedUnion('kind', [
   RuleFixGuidanceOnlySchema,
 ]);
 
+/**
+ * Inline detection-rule shape (also the shape emitted by `defineDetectRule`'s
+ * author-side helper). Accepts parameterised variants (`params`, function-
+ * typed `pattern` / `message` / `excludeWhen`) because inline `detect[]`
+ * entries in a `.regentrc.ts` are authored in TypeScript with the full
+ * parameterisation surface — the loader materialises function-typed
+ * fields against `configure[<ruleId>]` at step 4b, so the runner never
+ * sees them. `.passthrough()` keeps the schema forward-compatible with
+ * new optional fields without a breaking change.
+ */
 const DetectRuleSpecSchema = z
   .object({
     id: z.string().min(1),
     severity: SeveritySchema,
-    pattern: z.string().min(1),
-    excludeWhen: z.string().optional(),
+    pattern: z.union([z.string().min(1), z.function()]),
+    excludeWhen: z.union([z.string(), z.function()]).optional(),
     globs: GlobListSchema,
     excludePaths: GlobListSchema.optional(),
-    message: z.string().min(1),
+    message: z.union([z.string().min(1), z.function()]),
     source: z.string().optional(),
     rationale: z.string().optional(),
     review: RuleReviewSpecSchema.optional(),
     fix: RuleFixSpecSchema.optional(),
     dependsOn: z.array(z.string().min(1)).readonly().optional(),
+    params: z.unknown().optional(),
   })
-  .strict();
+  .passthrough();
 
 const FixRuleSpecSchema = z
   .object({
