@@ -356,13 +356,14 @@ all custom log payloads; pino's redact covers the rest.
 
 | | |
 |---|---|
-| Stage | v0.2 in development |
-| Version | 0.2.0 (pre-release) |
+| Stage | v0.4.0 in development (fix-mode epic shipped) |
+| Version | 0.4.0 |
 | License | MIT |
 | Runtime | Node ≥ 20 (Bun recommended for dev) |
 | Regex | `re2-wasm` (linear-time, no ReDoS) |
-| Test runner | vitest |
+| Test runner | vitest (555/555 as of last sync) |
 | CI | GitHub Actions (typecheck + lint + test + benchmark gate) |
+| Pattern helpers | 34 across C# / TypeScript / Python / Java / Go / Rust (see [`regent llm authoring detect`](assets/llm/authoring/detect.md#pre-built-composable-patterns)) |
 
 ## Brand
 
