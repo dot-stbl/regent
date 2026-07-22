@@ -32,6 +32,10 @@ import {
   isNpmPackageSpec,
   resolveExtendsNpmPackage,
 } from './loader/plugin-extends.js';
+import {
+  materializeRule,
+  validateConfigureKeys,
+} from './loader/parameterize.js';
 import type { RuleFixSpec } from './types.js';
 import { validateFixSpec } from './types.js';
 import type {
@@ -263,6 +267,21 @@ export async function loadRules(options: LoaderOptions): Promise<LoaderRuleSet> 
         seen.add(r.spec.id);
       }
     }
+  }
+
+  // 4b. Parameterize (#33b) — materialise `defineParameterizedRule`
+  // specs into plain-string `RuleSpec` shapes using the merged
+  // `rules.configure` map. Validation of unknown `configure` keys
+  // runs before per-rule materialisation so the error names the
+  // bad key, not whichever rule happens to fail first. The result
+  // is `RuleSpec`-only — downstream steps (disable / override /
+  // accept / runner) are otherwise unchanged.
+  validateConfigureKeys(
+    allRules.map((r) => r.spec.id),
+    config.rules.configure,
+  );
+  for (let i = 0; i < allRules.length; i++) {
+    allRules[i] = materializeRule(allRules[i]!, config.rules.configure);
   }
 
   // 5. Disable — remove by id

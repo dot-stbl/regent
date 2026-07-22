@@ -6,8 +6,48 @@
 
 import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import type { z } from 'zod';
 
+import type {
+  ParameterizedRuleSpec,
+} from '../kinds/parameterized.js';
 import type { CompiledRule, RuleSpec } from '../types.js';
+
+/**
+ * Type predicate for a loadable rule shape exposed by a plugin
+ * (`default` / `rule` / named export). Accepts both `RuleSpec`
+ * (the static-string form used by `defineDetectRule`) and the
+ * `ParameterizedRuleSpec` shape used by `defineParameterizedRule`
+ * (function-typed `pattern` paired with `params`) — discriminated
+ * by the `params` field. Both flow through the loader's
+ * materialisation step (parameterised) or pass through unchanged
+ * (static).
+ *
+ * Mirrors the `isDetectRuleSpec` predicate inside `loader.ts`;
+ * kept here because the plugin path (#23) owns its own type
+ * narrowing and should not depend on `loader.ts`'s internals.
+ */
+function isLoadableRuleSpec(
+  value: unknown,
+): value is RuleSpec | ParameterizedRuleSpec<z.ZodTypeAny> {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const obj = value as Record<string, unknown>;
+  if (typeof obj['id'] !== 'string' || typeof obj['severity'] !== 'string') {
+    return false;
+  }
+  if (!Array.isArray(obj['globs'])) {
+    return false;
+  }
+  // Parameterized — has `params`; `pattern` is string or function.
+  if (obj['params'] !== undefined) {
+    return true;
+  }
+  // Static — `pattern` must be a string (no function-form without
+  // `params`; that's the parameterised case the other branch owns).
+  return typeof obj['pattern'] === 'string';
+}
 
 /**
  * Pattern matches an npm package spec of the form `@scope/name[/subpath]`.
@@ -43,7 +83,7 @@ export function isNpmPackageSpec(item: string): boolean {
 export async function resolveExtendsNpmPackage(
   spec: string,
   cwd: string,
-  isDetectRuleSpec: (value: unknown) => value is RuleSpec,
+  _isDetectRuleSpec: (value: unknown) => value is RuleSpec,
 ): Promise<CompiledRule[]> {
   let mod: Record<string, unknown>;
   try {
@@ -86,9 +126,9 @@ export async function resolveExtendsNpmPackage(
     }
     if (Array.isArray(candidate)) {
       for (const item of candidate) {
-        if (isDetectRuleSpec(item)) {
+        if (isLoadableRuleSpec(item)) {
           out.push({
-            spec: item,
+            spec: item as RuleSpec,
             source: item.source ?? `${sourceLabel} (array)`,
             origin: { kind: 'repo', path: cwd },
           });
@@ -96,9 +136,9 @@ export async function resolveExtendsNpmPackage(
       }
       continue;
     }
-    if (isDetectRuleSpec(candidate)) {
+    if (isLoadableRuleSpec(candidate)) {
       out.push({
-        spec: candidate,
+        spec: candidate as RuleSpec,
         source: candidate.source ?? sourceLabel,
         origin: { kind: 'repo', path: cwd },
       });
