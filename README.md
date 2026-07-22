@@ -45,6 +45,26 @@ Pattern matching uses **RE2** (linear-time, no ReDoS surface);
 are not supported — compose per-line patterns and use `excludeWhen`
 for context.
 
+### Where rules live
+
+Three rule sources, three different roles — keep them straight:
+
+| Layer | Location | Role |
+|---|---|---|
+| **Examples** (in this repo) | `examples/<lang>/*.lint.ts` | Public, copy-able teaching material. NOT auto-loaded. Pulled in via `regent example copy`. Carries `fix:` blocks for the fixer-engine test suite. |
+| **Canonical bundle** (user-global) | `~/.agents/rules/csharp/regent-rules/` | The author-of-record ruleset for `.stbl` C# projects. Consumed via `rules.extends: ['<path>']` in `.regentrc.yaml`. Auto-loaded by the loader's user-global layer (see issue #84). |
+| **Per-team rules** | `tools/audit/rules/*.lint.ts` | Your project's bespoke rules. Pick this up with `bun run regent:check`; runs the same engine on your own code. |
+
+`examples/csharp/` and the canonical `regent-rules/` bundle
+intentionally diverge: examples include `fix:` attachments for the
+fixer test surface; the canonical bundle is detect-only. Renaming
+example ids to canonical ones would break the existing
+`test/shipped-examples.test.ts` suite. Conformance for the
+canonical bundle lives at `test/bundle-conformance.test.ts` — every
+rule must fire on its `bad.cs` and stay silent on `good.cs`, and
+AST rules additionally verify the ast-grep pattern matches at
+least one node (the kind-anchor safety net from #84).
+
 ## Install
 
 `@dot-stbl/regent` ships on **npmjs.com** under the `@dot-stbl` scope.
@@ -338,6 +358,8 @@ all custom log payloads; pino's redact covers the rest.
 | `src/examples/index.ts` | shipped-example registry |
 | `assets/llm/` | agent skill contract (markdown) |
 | `examples/<lang>/*.lint.ts` | shipped rule packs (NOT auto-loaded) |
+| `test/__fixtures__/csharp/<category>/<rule>/{bad,good}.cs` | fixture corpus for `test/bundle-conformance.test.ts` (issue #84) |
+| `test/bundle-conformance.test.ts` | conformance harness for the canonical `~/.agents/rules/csharp/regent-rules/` bundle |
 | `tools/audit/rules/*.lint.ts` | **team-authored** rules — `regent` dogfooding its own conventions (separate from `examples/`, enforced via `bun run regent:check`) |
 
 ## Why `regent`?
