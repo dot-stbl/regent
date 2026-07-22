@@ -109,7 +109,7 @@ Available helpers in `patterns`:
 `mixedIndent()`, `finalNewlineMissing()`, `tabIndent()`,
 `fourSpaceIndent()`, `twoSpaceIndent()`, `packageDeclaration()`,
 `pythonImport()`, `javaPublicClass()`, `javaSystemOut()`,
-`javaOverride()`.
+`javaOverride()`, `goPackageDecl()`, `goImport()`, `goFuncMain()`.
 
 ## Per-line scope
 

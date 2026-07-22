@@ -126,4 +126,25 @@ describe('patterns', () => {
       expect(re).toContain('@Override');
     });
   });
+
+  describe('Go helpers', () => {
+    it('goPackageDecl anchors a `package foo` declaration', () => {
+      const re = patterns.goPackageDecl().toRegex();
+      expect(re.startsWith('^')).toBe(true);
+      expect(re).toContain('package');
+    });
+
+    it('goImport matches single-line `import "..."` forms', () => {
+      const re = patterns.goImport().toRegex();
+      expect(re.startsWith('^')).toBe(true);
+      expect(re).toContain('import');
+    });
+
+    it('goFuncMain matches `func main(...)` entry point', () => {
+      const re = patterns.goFuncMain().toRegex();
+      expect(re).toContain('func');
+      expect(re).toContain('main');
+      expect(re).toContain('(');
+    });
+  });
 });
