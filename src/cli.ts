@@ -36,6 +36,7 @@ import { Command } from 'commander';
 import pc from 'picocolors';
 
 import { loadRules } from './loader.js';
+import { runDelegates } from './runner/delegate.js';
 import { runRules, runRulesStream } from './runner.js';
 import { BUNDLES } from './bundles/index.js';
 import { renderText, renderSummary, renderFinding } from './reporter/text.js';
@@ -459,6 +460,16 @@ async function runCheck(options: CheckOptions): Promise<number> {
     astRules,
   });
   let findings = result.findings;
+
+  // #34 — workspace-level delegate specs run after the per-file
+  // scan; their findings merge into the same report. The runner
+  // (src/runner/delegate.ts) enforces the safety blocklist and
+  // synthesises a failure finding when the tool crashes.
+  const delegateFindings = await runDelegates(
+    loadedRules.delegateSpecs,
+    loadedRules.resolvedConfig.rules.configure,
+  );
+  findings = [...findings, ...delegateFindings];
 
   // Violations-only flag (drop pending review)
   if (hideReview) {
