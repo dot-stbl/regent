@@ -6,11 +6,12 @@
  * handling or `?` propagation is preferable.
  */
 import { defineDetectRule } from '@dot-stbl/regent';
+import { patterns } from '@dot-stbl/regent';
 
 export default defineDetectRule({
   id: 'rust.unwrap-in-prod',
   severity: 'warning',
-  pattern: '\\.unwrap\\s*\\(',
+  pattern: patterns.rustUnwrap().toRegex(),
   excludeWhen: '^\\s*//',
   globs: ['**/*.rs'],
   excludePaths: [

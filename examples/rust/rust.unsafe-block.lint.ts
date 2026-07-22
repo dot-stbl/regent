@@ -6,11 +6,12 @@
  * paths. Use this as a template for security-sensitive Rust rules.
  */
 import { defineDetectRule } from '@dot-stbl/regent';
+import { patterns } from '@dot-stbl/regent';
 
 export default defineDetectRule({
   id: 'rust.unsafe-block',
   severity: 'warning',
-  pattern: '\\bunsafe\\s*\\{',
+  pattern: patterns.rustUnsafe().toRegex(),
   excludeWhen: '//\\s*unsafe-allow',
   globs: ['**/*.rs'],
   excludePaths: ['**/tests/**', '**/benches/**', '**/examples/**'],

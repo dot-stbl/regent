@@ -258,4 +258,34 @@ export const patterns = {
   goFuncMain(): RegexBuilder {
     return compile(['^func\\s+main\\s*\\(']);
   },
+
+  /**
+   * Rust `pub fn <name>(...)` — public function declaration.
+   */
+  rustPubFn(): RegexBuilder {
+    return compile(['\\bpub\\s+fn\\s+[A-Za-z_][A-Za-z0-9_]*\\s*\\(']);
+  },
+
+  /**
+   * Rust `use crate::...` — crate-internal import path.
+   */
+  rustUseCrate(): RegexBuilder {
+    return compile(['\\buse\\s+crate::']);
+  },
+
+  /**
+   * Rust `unsafe { ... }` block — bypasses the borrow checker.
+   * Pair with a `// unsafe-allow:` exclusion for documented sites.
+   */
+  rustUnsafe(): RegexBuilder {
+    return compile(['\\bunsafe\\s*\\{']);
+  },
+
+  /**
+   * Rust `.unwrap()` — panics on `Err` / `None`. Often a smell in
+   * production paths; commonly accepted in tests.
+   */
+  rustUnwrap(): RegexBuilder {
+    return compile(['\\.unwrap\\s*\\(']);
+  },
 } as const;

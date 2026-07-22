@@ -109,7 +109,8 @@ Available helpers in `patterns`:
 `mixedIndent()`, `finalNewlineMissing()`, `tabIndent()`,
 `fourSpaceIndent()`, `twoSpaceIndent()`, `packageDeclaration()`,
 `pythonImport()`, `javaPublicClass()`, `javaSystemOut()`,
-`javaOverride()`, `goPackageDecl()`, `goImport()`, `goFuncMain()`.
+`javaOverride()`, `goPackageDecl()`, `goImport()`, `goFuncMain()`,
+`rustPubFn()`, `rustUseCrate()`, `rustUnsafe()`, `rustUnwrap()`.
 
 ## Per-line scope
 
