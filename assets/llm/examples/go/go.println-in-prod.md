@@ -10,11 +10,12 @@ use `slog` (stdlib since 1.21), `logrus`, `zap`, or similar.
 ```ts
 // examples/go/go.println-in-prod.lint.ts
 import { defineDetectRule } from '@dot-stbl/regent';
+import { patterns } from '@dot-stbl/regent';
 
 export default defineDetectRule({
   id: 'go.println-in-prod',
   severity: 'warning',
-  pattern: '\\bfmt\\.(Print|Println|Printf|Println)\\s*\\(',
+  pattern: patterns.goPrintln().toRegex(),
   globs: ['**/*.go'],
   excludePaths: ['**/*_test.go', '**/testdata/**'],
   message:
@@ -31,10 +32,9 @@ export default defineDetectRule({
 
 ## Pattern note
 
-Note the rule's pattern lists `Println` twice — harmless for the
-regex engine but worth flagging in any future helper. When a
-`patterns.goPrintln()` helper ships it should ship with a
-deduplicated alternative set.
+`patterns.goPrintln()` covers `Print` / `Println` / `Printf` on the
+`fmt` package, deduplicated (the v0.3 raw example listed `Println`
+twice — harmless for the regex engine, but the helper resolves it).
 
 ## Testing
 

@@ -5,11 +5,12 @@
  * for genuinely unrecoverable programmer errors.
  */
 import { defineDetectRule } from '@dot-stbl/regent';
+import { patterns } from '@dot-stbl/regent';
 
 export default defineDetectRule({
   id: 'go.panic-in-prod',
   severity: 'warning',
-  pattern: '\\bpanic\\s*\\(',
+  pattern: patterns.goPanic().toRegex(),
   globs: ['**/*.go'],
   excludePaths: [
     '**/main.go',

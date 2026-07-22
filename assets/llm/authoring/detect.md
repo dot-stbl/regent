@@ -110,6 +110,7 @@ Available helpers in `patterns`:
 `fourSpaceIndent()`, `twoSpaceIndent()`, `packageDeclaration()`,
 `pythonImport()`, `javaPublicClass()`, `javaSystemOut()`,
 `javaOverride()`, `goPackageDecl()`, `goImport()`, `goFuncMain()`,
+`goPrintln()`, `goPanic()`,
 `rustPubFn()`, `rustUseCrate()`, `rustUnsafe()`, `rustUnwrap()`.
 
 ## Per-line scope
