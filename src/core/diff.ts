@@ -6,6 +6,12 @@
 // standard LCS-table + backtrack approach; O(N*M) memory but fine for
 // the sizes we expect (single fix output rarely > 10k lines).
 
+/**
+ * One hunk of a unified diff. `oldStart`/`newStart` are 1-indexed line
+ * numbers (matching the `@@ -...,... +...,... @@` header); `lines` is
+ * a stream of ` ` (context) / `-` (removed) / `+` (added) prefixed lines,
+ * already in render order.
+ */
 export interface DiffHunk {
   readonly oldStart: number;     // 1-indexed
   readonly oldLines: number;
@@ -14,6 +20,11 @@ export interface DiffHunk {
   readonly lines: readonly string[];   // ' ' context, '-' removed, '+' added
 }
 
+/**
+ * The output of `diffLines`: zero or more hunks plus aggregate
+ * addition/deletion counts over the entire file. Empty result means
+ * no differences (or both inputs empty).
+ */
 export interface DiffResult {
   readonly hunks: readonly DiffHunk[];
   readonly additions: number;

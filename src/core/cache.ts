@@ -25,6 +25,11 @@ import { dirname, join } from 'node:path';
 const SCHEMA_VERSION = 1;
 const FORMAT = 'json' as const;
 
+/**
+ * On-disk cache header — written once at the top of `.regent/cache.json`.
+ * Any change to `schemaVersion` or `runnerVersion` (relative to the
+ * compiled-in defaults) is treated as a global invalidation by `DiskCache.load()`.
+ */
 export interface CacheHeader {
   readonly schemaVersion: number;
   readonly runnerVersion: string;
@@ -60,14 +65,38 @@ export interface CacheEntry {
   readonly ruleId?: string;
 }
 
+/**
+ * Pluggable cache contract consumed by the runner. Implementations may
+ * be in-memory, disk-backed (`DiskCache`), or no-op (`--no-cache` mode).
+ */
 export interface CacheStore {
+  /**
+   * Look up a cached result. Returns `undefined` on miss. Does not
+   * side-effect the store.
+   */
   get(key: CacheKey): CacheEntry | undefined;
+  /**
+   * Persist a result under the given key. When `entry.ruleId` is
+   * absent but `key.ruleId` is set, the id is copied through so the
+   * on-disk entry participates in the reverse `ruleId` index.
+   */
   set(key: CacheKey, entry: CacheEntry): void;
+  /**
+   * Drop entries. Pass `fileHash` to drop a single file across all
+   * rules, or `ruleId` to drop every cached result for that rule.
+   * Both axes are independent and may be combined.
+   */
   invalidate(scope: { ruleId?: string; fileHash?: string }): void;
+  /** Snapshot of cache counters — hits, misses, writes, on-disk size. */
   stats(): CacheStats;
+  /** Force the store to persist its current state. Idempotent. */
   flush(): void;
 }
 
+/**
+ * Snapshot of cache counters, returned by `CacheStore.stats()`.
+ * `hits + misses` equals the number of `get()` calls observed.
+ */
 export interface CacheStats {
   readonly hits: number;
   readonly misses: number;
@@ -115,6 +144,18 @@ export class DiskCache implements CacheStore {
   private misses = 0;
   private writes = 0;
 
+  /**
+   * Construct a disk cache. Reads the existing `.regent/cache.json`
+   * (if present and on-scheme) eagerly and primes the in-memory
+   * `store` and reverse ruleId index. When `enabled` is `false`,
+   * the cache becomes a no-op (every `get` returns `undefined`,
+   * every `set` is discarded).
+   *
+   * @param opts.path on-disk location of the cache file (created on first `set`/`flush`)
+   * @param opts.maxBytes maximum cache file size in bytes; LRU eviction past this
+   * @param opts.maxAge TTL in ms; entries older than this are dropped on load. Default: 7 days
+   * @param opts.enabled when false, the cache is a no-op. Default: true
+   */
   constructor(
     opts: { path: string; maxBytes: number; maxAge?: number; enabled?: boolean },
   ) {
@@ -127,6 +168,9 @@ export class DiskCache implements CacheStore {
     }
   }
 
+  /**
+   * @returns the cached entry, or `undefined` on miss / no-op mode
+   */
   get(key: CacheKey): CacheEntry | undefined {
     if (!this.enabled) {
       this.misses++;
@@ -142,6 +186,11 @@ export class DiskCache implements CacheStore {
     return undefined;
   }
 
+  /**
+   * Store `entry` under the composite key derived from `key`. Triggers
+   * LRU eviction (`enforceCap`) when over `maxBytes`, then persists
+   * atomically (tmp + rename).
+   */
   set(key: CacheKey, entry: CacheEntry): void {
     if (!this.enabled) {
       return;
@@ -162,6 +211,11 @@ export class DiskCache implements CacheStore {
     this.flush();
   }
 
+  /**
+   * Drop entries. Pass `fileHash` to remove every entry for one file
+   * (regardless of rule), or `ruleId` to remove every entry for one
+   * rule (regardless of file). Both may be combined.
+   */
   invalidate(scope: { ruleId?: string; fileHash?: string }): void {
     if (scope.fileHash !== undefined) {
       const prefix = `${scope.fileHash}|`;
@@ -196,6 +250,10 @@ export class DiskCache implements CacheStore {
     this.flush();
   }
 
+  /**
+   * @returns a snapshot of the current counters (hits, misses, writes,
+   * on-disk size in bytes)
+   */
   stats(): CacheStats {
     let sizeBytes = 0;
     try {
@@ -206,6 +264,11 @@ export class DiskCache implements CacheStore {
     return { hits: this.hits, misses: this.misses, writes: this.writes, sizeBytes };
   }
 
+  /**
+   * Persist the current cache state to disk (atomic write: tmp +
+   * rename). Idempotent in no-op mode. Called automatically by `set()`
+   * and `invalidate()`; exposed for explicit checkpoints and for tests.
+   */
   flush(): void {
     if (!this.enabled) {
       return;
@@ -335,6 +398,18 @@ export class DiskCache implements CacheStore {
   }
 }
 
+/**
+ * Build a `CacheKey` from raw inputs. `fileContent` and `ruleSpec` are
+ * hashed (sha256) to form the composite on-disk key; `ruleId` is
+ * optional metadata used only by the reverse ruleId → ruleHash index
+ * in `DiskCache`.
+ *
+ * @param fileContent raw file body (used for the content hash)
+ * @param ruleSpec the compiled rule specification (any JSON-serialisable shape)
+ * @param kind whether the entry holds detect or fix results
+ * @param ruleId optional rule id (e.g. `csharp.no-region`) — only used
+ *              for the invalidation index; not part of the composite key
+ */
 export function cacheKeyFor(
   fileContent: string,
   ruleSpec: unknown,
