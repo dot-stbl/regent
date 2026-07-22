@@ -105,4 +105,25 @@ describe('patterns', () => {
       expect(re).not.toContain('undefined');
     }
   });
+
+  describe('Java helpers', () => {
+    it('javaPublicClass matches `public class Foo`', () => {
+      const re = patterns.javaPublicClass().toRegex();
+      expect(re).toContain('public');
+      expect(re).toContain('class');
+    });
+
+    it('javaSystemOut covers print/println/printf on both out and err', () => {
+      const re = patterns.javaSystemOut().toRegex();
+      expect(re).toContain('System');
+      expect(re).toContain('out');
+      expect(re).toContain('err');
+      expect(re).toContain('print');
+    });
+
+    it('javaOverride matches the @Override annotation', () => {
+      const re = patterns.javaOverride().toRegex();
+      expect(re).toContain('@Override');
+    });
+  });
 });

@@ -214,4 +214,48 @@ export const patterns = {
   pythonImport(): RegexBuilder {
     return compile(['^\\s*(from\\s+[\\w.]+\\s+import\\s+|import\\s+[\\w.]+)']);
   },
+
+  /**
+   * Java `public class Foo` (top-level type declaration).
+   */
+  javaPublicClass(): RegexBuilder {
+    return compile(['\\bpublic\\s+class\\s+[A-Z]\\w*']);
+  },
+
+  /**
+   * Java `System.out.println(...)` / `System.err.printf(...)` —
+   * stdout noise that should go through a logger.
+   */
+  javaSystemOut(): RegexBuilder {
+    return compile(['\\bSystem\\.(out|err)\\.print(?:ln|f)?\\s*\\(']);
+  },
+
+  /**
+   * Java `@Override` annotation.
+   */
+  javaOverride(): RegexBuilder {
+    return compile(['@Override\\b']);
+  },
+
+  /**
+   * Go `package foo` (top-of-file package declaration, anchored).
+   */
+  goPackageDecl(): RegexBuilder {
+    return compile(['^package\\s+[a-z][a-z0-9_]*\\b']);
+  },
+
+  /**
+   * Go `import "..."` line (single-line form). Multi-line `import (...)`
+   * blocks are covered separately by a raw-regex rule if you need them.
+   */
+  goImport(): RegexBuilder {
+    return compile(['^import\\s+(?:"[^"]+"|`[^`]+`)']);
+  },
+
+  /**
+   * Go `func main(...)` — entry-point declaration.
+   */
+  goFuncMain(): RegexBuilder {
+    return compile(['^func\\s+main\\s*\\(']);
+  },
 } as const;

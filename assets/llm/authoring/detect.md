@@ -108,7 +108,8 @@ Available helpers in `patterns`:
 `throwNewError()`, `tsAnyType()`, `trailingWhitespace()`,
 `mixedIndent()`, `finalNewlineMissing()`, `tabIndent()`,
 `fourSpaceIndent()`, `twoSpaceIndent()`, `packageDeclaration()`,
-`pythonImport()`.
+`pythonImport()`, `javaPublicClass()`, `javaSystemOut()`,
+`javaOverride()`.
 
 ## Per-line scope
 

@@ -9,6 +9,7 @@ templates for your own rules.
 | [`csharp`](./csharp/index.md) | C# — naming, async, exceptions, HTTP, regions |
 | [`typescript`](./typescript/index.md) | TypeScript — banned types, console |
 | [`python`](./python/index.md) | Python — type hints |
+| [`java`](./java/index.md) | Java — empty catch, system-out |
 | [`meta`](./meta/index.md) | language-agnostic — file hygiene, formatting |
 
 Browse:
