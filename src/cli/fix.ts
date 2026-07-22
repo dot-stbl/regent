@@ -69,6 +69,7 @@ import type {
   RunnerScope,
 } from '../types.js';
 import { toV1Json } from '../reporter/fix-schema.js';
+import { flushAndExit } from '../logging/index.js';
 
 /** Per-AST-rule and per-transform rules are out of scope for the P3
  *  fixer engine (which only consumes `RuleSpec` + `Finding`); skip
@@ -133,7 +134,7 @@ export function registerFixCommand(program: Command): void {
     .option('-y, --yes', 'skip the confirmation prompt')
     .action(async (paths: string[], options: FixOptions) => {
       const exitCode = await runFix({ paths, options });
-      process.exit(exitCode);
+      await flushAndExit(exitCode);
     });
 }
 

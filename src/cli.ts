@@ -57,7 +57,7 @@ import {
   formatDiff,
   formatLayers,
 } from './config/inspect.js';
-import { createLogger, type Logger } from './logging/index.js';
+import { createLogger, flushAndExit, type Logger } from './logging/index.js';
 import { isLogLevel, type LogLevel } from './logging/levels.js';
 
 const VERSION = '0.3.0';
@@ -124,7 +124,7 @@ program
   )
   .action(async (options) => {
     const exitCode = await runCheck(options);
-    process.exit(exitCode);
+    await flushAndExit(exitCode);
   });
 
 program
@@ -137,7 +137,7 @@ program
   .option('--include-accepted', 'also surface accepted findings (audit)')
   .action(async (options) => {
     const exitCode = await runReview(options);
-    process.exit(exitCode);
+    await flushAndExit(exitCode);
   });
 
 program
@@ -152,7 +152,7 @@ program
 program
   .command('bundles')
   .description("List supported language bundles + the project's detected language versions")
-  .action(() => {
+  .action(async () => {
     const cwd = process.cwd();
     for (const b of BUNDLES) {
       const detected = b.detectProjectVersion(cwd);
@@ -164,7 +164,7 @@ program
         process.stdout.write(`  aliases:  ${b.aliases.join(', ')}\n`);
       }
     }
-    process.exit(0);
+    await flushAndExit(0);
   });
 
 program
@@ -181,7 +181,7 @@ program
   .argument('[field]', 'dotted config path (for `show`)')
   .action(async (subcommand?: string, field?: string) => {
     const exitCode = await runConfig(subcommand ?? '', field ?? '');
-    process.exit(exitCode);
+    await flushAndExit(exitCode);
   });
 
 program
@@ -189,7 +189,7 @@ program
   .description('Migrate a legacy tools/audit/config.ts to the v0.2 .regentrc.ts format')
   .action(async () => {
     const exitCode = await runMigrate();
-    process.exit(exitCode);
+    await flushAndExit(exitCode);
   });
 
 program
@@ -211,7 +211,7 @@ program
   .option('--scope', 'write to commit-shared config.ts instead of local.ts')
   .action(async (ruleId: string, target: string, options) => {
     const exitCode = await runAccept(ruleId, target, options);
-    process.exit(exitCode);
+    await flushAndExit(exitCode);
   });
 
 program
@@ -222,7 +222,7 @@ program
   .option('--config <dir>', 'repo root containing tools/audit/', '.')
   .action(async (ruleId: string, pathLine: string, options) => {
     const exitCode = await runReject(ruleId, pathLine, options);
-    process.exit(exitCode);
+    await flushAndExit(exitCode);
   });
 
 registerFixCommand(program);
@@ -255,7 +255,7 @@ program
       return;
     }
     getLogger().error({ action }, 'unknown cache action — use stats or clear');
-    process.exit(2);
+    await flushAndExit(2);
   });
 
 program
@@ -275,14 +275,14 @@ program
       const [language, ruleId] = args;
       if (!language || !ruleId) {
         getLogger().error({}, 'example show <lang> <rule-id>');
-        process.exit(2);
+        await flushAndExit(2);
         return;
       }
       const { examplesDir, findExample } = await import('./examples/index.js');
       const found = findExample(examplesDir(), language, ruleId);
       if (!found) {
         getLogger().error({ language, ruleId }, 'example not found');
-        process.exit(2);
+        await flushAndExit(2);
         return;
       }
       const { readFileSync } = await import('node:fs');
@@ -293,7 +293,7 @@ program
       const [language, ruleId, target] = args;
       if (!language || !ruleId) {
         getLogger().error({}, 'example copy <lang> <rule-id> [target-dir]');
-        process.exit(2);
+        await flushAndExit(2);
         return;
       }
       const { examplesDir, findExample } = await import('./examples/index.js');
@@ -302,7 +302,7 @@ program
       const found = findExample(examplesDir(), language, ruleId);
       if (!found) {
         getLogger().error({ language, ruleId }, 'example not found');
-        process.exit(2);
+        await flushAndExit(2);
         return;
       }
       mkdirSync(targetDir, { recursive: true });
@@ -312,7 +312,7 @@ program
       return;
     }
     getLogger().error({ action }, 'unknown example action — use list/show/copy');
-    process.exit(2);
+    await flushAndExit(2);
   });
 
 program
@@ -335,7 +335,7 @@ program
   .description('Print LLM-friendly skill documentation')
   .argument('[sub...]', 'subcommand path (e.g. "authoring detect", "examples csharp")')
   .option('--json', 'emit JSON Schema instead of markdown (works for "schema detect-rule" / "schema fix-rule")')
-  .action((sub: string[], options) => {
+  .action(async (sub: string[], options) => {
     const subArgs = sub ?? [];
     // `--json` short-circuits the markdown router for the two
     // RULE-spec schema subcommands (P5 #62 renamed: `fix` →
@@ -343,23 +343,24 @@ program
     if (options.json) {
       if (subArgs.length === 2 && subArgs[0] === 'schema' && subArgs[1] === 'detect-rule') {
         process.stdout.write(renderDetectSchemaJson());
-        process.exit(0);
+        await flushAndExit(0);
       }
       if (subArgs.length === 2 && subArgs[0] === 'schema' && subArgs[1] === 'fix-rule') {
         process.stdout.write(renderFixRuleSchemaJson());
-        process.exit(0);
+        await flushAndExit(0);
       }
       getLogger().error({}, '`--json` is only valid with `regent llm schema detect-rule` or `regent llm schema fix-rule`');
-      process.exit(2);
+      await flushAndExit(2);
       return;
     }
     const result = routeLlm(subArgs);
     if (result.kind === 'ok') {
       process.stdout.write(result.content);
-      process.exit(0);
+      await flushAndExit(0);
+      return;
     }
     getLogger().error({}, result.message);
-    process.exit(2);
+    await flushAndExit(2);
   });
 
 async function runCheck(options: CheckOptions): Promise<number> {
@@ -1325,11 +1326,11 @@ if (process.argv.slice(2).includes('--llm')) {
   process.exit(0);
 }
 
-program.parseAsync(process.argv).catch((err: unknown) => {
+program.parseAsync(process.argv).catch(async (err: unknown) => {
   const e = err as { code?: string; message?: string };
   if (e.code === 'commander.helpDisplayed' || e.code === 'commander.help' || e.code === 'commander.versionDisplayed') {
-    process.exit(0);
+    await flushAndExit(0);
   }
   getLogger().error({ err: { message: e.message ?? String(err) } }, 'cli fatal');
-  process.exit(1);
+  await flushAndExit(1);
 });
