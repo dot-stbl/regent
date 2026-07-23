@@ -68,6 +68,16 @@ export interface LoaderRuleSet {
   readonly acceptList: readonly LoadedAcceptEntry[];
   readonly resolvedConfig: ResolvedConfig;
   readonly totalSourceLayers: number;
+  /**
+   * Per-load warnings surfaced as the deprecation/maintenance noise
+   * the loader is best placed to detect. Currently used by sub-item 2
+   * of #57 (one-time `kind: 'regex'` deprecation). The CLI writes them
+   * to stderr (one-liner per warning) and mirrors them into the
+   * `format-json` `warnings` field. Dedupe happens at the call site so
+   * the same rule id loaded via different paths (file + extends) only
+   * warns once.
+   */
+  readonly warnings: readonly string[];
 }
 
 export type LoadedAcceptEntry = AcceptEntry & {
@@ -88,6 +98,23 @@ export async function loadRules(options: LoaderOptions): Promise<LoaderRuleSet> 
   const fileTransformRules: CompiledTransformRule[] = [];
   const seen = new Set<string>();
 
+  // Per-load warnings accumulator. Currently used by sub-item 2 of
+  // #57: one-time `kind: 'regex'` deprecation. Dedupe is per
+  // (process, rule id) — a rule loaded via two paths in one process
+  // (file + extends) only emits once. Reset happens implicitly each
+  // call to `loadRules`.
+  const warnings: string[] = [];
+  const regexWarnedIds = new Set<string>();
+  const flagRegexDeprecation = (ruleId: string): void => {
+    if (regexWarnedIds.has(ruleId)) {
+      return;
+    }
+    regexWarnedIds.add(ruleId);
+    warnings.push(
+      `rule '${ruleId}' uses kind: 'regex' which is deprecated; migrate to kind: 'ast' or kind: 'command' (see CONTRIBUTING.md#rule-kinds)`,
+    );
+  };
+
   // 1. User-global rule files. Precedence (high → low):
   //    a. `config.globalRulesPath` (set in `~/.config/regent/config.json`,
   //       see issue #85). The user-global layer reads it via the
@@ -107,6 +134,7 @@ export async function loadRules(options: LoaderOptions): Promise<LoaderRuleSet> 
     for (const r of await loadRuleFilesUnder(userGlobalRoot, 'global')) {
       if (!seen.has(r.spec.id)) {
         allRules.push(r);
+        flagRegexDeprecation(r.spec.id);
         seen.add(r.spec.id);
       }
     }
@@ -122,6 +150,7 @@ export async function loadRules(options: LoaderOptions): Promise<LoaderRuleSet> 
     for (const r of await loadRuleFilesUnder(repoRulesDir, 'repo')) {
       if (!seen.has(r.spec.id)) {
         allRules.push(r);
+        flagRegexDeprecation(r.spec.id);
         seen.add(r.spec.id);
       }
     }
@@ -152,6 +181,7 @@ export async function loadRules(options: LoaderOptions): Promise<LoaderRuleSet> 
         source: spec.source ?? '<inline>',
         origin: { kind: 'repo', path: cwd },
       });
+      flagRegexDeprecation(spec.id);
       seen.add(spec.id);
     }
   }
@@ -162,6 +192,8 @@ export async function loadRules(options: LoaderOptions): Promise<LoaderRuleSet> 
         source: '<inline>',
         origin: { kind: 'repo', path: cwd },
       });
+      // fix rules are auto-rewrites — they carry their own kind on disk
+      // and are not in scope of the #57 regex-detection deprecation.
       seen.add(spec.id);
     }
   }
@@ -265,6 +297,7 @@ export async function loadRules(options: LoaderOptions): Promise<LoaderRuleSet> 
     for (const r of extended) {
       if (!seen.has(r.spec.id)) {
         allRules.push(r);
+        flagRegexDeprecation(r.spec.id);
         seen.add(r.spec.id);
       }
     }
@@ -311,6 +344,7 @@ export async function loadRules(options: LoaderOptions): Promise<LoaderRuleSet> 
       (sources.local ? 1 : 0) +
       (sources.env ? 1 : 0) +
       (sources.args ? 1 : 0),
+    warnings,
   };
 }
 

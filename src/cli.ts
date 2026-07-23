@@ -37,7 +37,7 @@ import pc from 'picocolors';
 
 import { loadRules } from './loader.js';
 import { runRules, runRulesStream } from './runner.js';
-import { BUNDLES } from './bundles/index.js';
+import { BUNDLES, detectGrammarMismatch, resolveBundle } from './bundles/index.js';
 import { renderText, renderSummary, renderFinding } from './reporter/text.js';
 import { renderSarif } from './reporter/sarif.js';
 import { renderJsonFromRun } from './reporter/json.js';
@@ -364,6 +364,69 @@ program
     await flushAndExit(2);
   });
 
+/**
+ * Build the per-run advisory-message list emitted to stderr and
+ * threaded into the `--format json` `warnings` field (sub-items 2
+ * and 4 of #57).
+ *
+ * Source order:
+ *  1. Loader-emitted warnings (currently: `kind: 'regex'` deprecation,
+ *     deduped per rule id within the process).
+ *  2. Grammar-version mismatch: for every language used by an AST
+ *     rule, compare the project's detected version against the
+ *     bundle's `langVersionRange.maxMajor`. Emits at most one
+ *     warning per language per call (a project can't mismatch twice
+ *     in one run).
+ *
+ * `cwd` is the project root the AST rules expect to scan; the
+ * language-detect readers only look at fixed filenames
+ * (`.csproj`, `tsconfig.json`, `Cargo.toml`, `go.mod`), so the
+ * project root is the right anchor.
+ */
+function collectRunWarnings(
+  loadedRules: Awaited<ReturnType<typeof loadRules>>,
+  astRules: readonly CompiledAstRule[],
+  cwd: string,
+): readonly string[] {
+  const out: string[] = [...loadedRules.warnings];
+  const seenLanguages = new Set<string>();
+  for (const astRule of astRules) {
+    const langId = astRule.spec.language;
+    if (seenLanguages.has(langId)) {
+      continue;
+    }
+    seenLanguages.add(langId);
+    const bundle = resolveBundle(langId);
+    if (bundle === null) {
+      continue;
+    }
+    const warning = detectGrammarMismatch(bundle, cwd);
+    if (warning !== null) {
+      out.push(warning);
+    }
+  }
+  return out;
+}
+
+/**
+ * Write each advisory as a one-line `warning:` record to stderr.
+ * Color-gated on `useColor` (no color when piped or `NO_COLOR=1`),
+ * matching `cli/fix.ts#resolveFormat`'s --json deprecation
+ * precedent. Empty input is a no-op — no spurious blank stderr.
+ */
+function emitWarningsToStderr(
+  warnings: readonly string[],
+  useColor: boolean,
+): void {
+  if (warnings.length === 0) {
+    return;
+  }
+  const prefix = useColor ? pc.yellow('warning:') : 'warning:';
+  for (const warning of warnings) {
+    process.stderr.write(`${prefix} ${warning}\n`);
+  }
+}
+
 async function runCheck(options: CheckOptions): Promise<number> {
   const cwd = process.cwd();
   const useColor = shouldUseColor(options);
@@ -399,6 +462,12 @@ async function runCheck(options: CheckOptions): Promise<number> {
     astRules = astRules.filter((r) => !ids.has(r.spec.id));
   }
 
+  // Per-run advisory messages surfaced to stderr + `--format json`
+  // `warnings` (sub-items 2 and 4 of #57). Collected BEFORE the scan
+  // so they reach the user immediately even on scan failure.
+  const runWarnings = collectRunWarnings(loadedRules, astRules, cwd);
+  emitWarningsToStderr(runWarnings, useColor);
+
   const scope: RunnerScope = {
     cwd,
     includeGlobs: ['**/*'],
@@ -426,6 +495,7 @@ async function runCheck(options: CheckOptions): Promise<number> {
       rules,
       astRules,
       loadedRules,
+      runWarnings,
       useColor,
       hideReview,
       severity: options.severity as Severity | undefined,
@@ -477,10 +547,13 @@ async function runCheck(options: CheckOptions): Promise<number> {
     // The JSON reporter carries the runner's `scannedFiles` count on
     // the top-level document; build a fresh RunResult so the
     // display-filtered findings + the scan stats line up. The JSON
-    // shape mirrors `src/types.ts:RunResult`.
+    // shape mirrors `src/types.ts:RunResult`. Per-run advisories
+    // (regex-deprecation, grammar-mismatch) thread through the
+    // `warnings` field so consumers see the same data stderr prints.
     output = renderJsonFromRun(
       { findings, rules: result.rules, scannedFiles: result.scannedFiles },
       { cwd },
+      runWarnings,
     );
   } else if (format === 'both') {
     output = renderText(findings, { cwd, useColor, hideReview, columns });
@@ -517,6 +590,7 @@ async function runCheckWatch(args: {
   readonly rules: readonly CompiledRule[];
   readonly astRules: readonly CompiledAstRule[];
   readonly loadedRules: Awaited<ReturnType<typeof loadRules>>;
+  readonly runWarnings: readonly string[];
   readonly useColor: boolean;
   readonly hideReview: boolean;
   readonly severity: Severity | undefined;
@@ -524,7 +598,7 @@ async function runCheckWatch(args: {
   readonly columns: number | undefined;
   readonly format: string;
 }): Promise<number> {
-  const { cwd, scope, rules, astRules, loadedRules, useColor, hideReview, severity, exitOn, columns, format } = args;
+  const { cwd, scope, rules, astRules, loadedRules, runWarnings, useColor, hideReview, severity, exitOn, columns, format } = args;
 
   const { DiskCache, defaultCachePath } = await import('./core/cache.js');
   const { watchForChanges } = await import('./watcher.js');
@@ -560,9 +634,12 @@ async function runCheckWatch(args: {
     if (format === 'sarif') {
       output = renderSarif(findings, result.rules, { cwd });
     } else if (format === 'json') {
+      // Watch mode replays the run; thread the same `runWarnings`
+      // each iteration so the JSON document stays consistent.
       output = renderJsonFromRun(
         { findings, rules: result.rules, scannedFiles: result.scannedFiles },
         { cwd },
+        runWarnings,
       );
     } else {
       output = renderText(findings, { cwd, useColor, hideReview, columns });

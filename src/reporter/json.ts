@@ -59,6 +59,15 @@ export interface JsonRunResult {
   readonly rules: readonly JsonRuleDescriptor[];
   readonly findings: readonly JsonFinding[];
   readonly scannedFiles: number;
+  /**
+   * Per-run advisory messages (e.g. `kind: 'regex'` deprecation,
+   * grammar-version mismatch). Empty when there's nothing to say.
+   * Surfaced in `--format json` so consumers can branch on the same
+   * data they would read from stderr (sub-items 2 + 4 of #57). The
+   * CLI forwards these as one-line `warning:` records on stderr
+   * too — they are NEVER silent.
+   */
+  readonly warnings: readonly string[];
 }
 
 /**
@@ -72,6 +81,21 @@ export function renderJson(
   findings: readonly Finding[],
   rules: readonly CompiledRule[],
   options: JsonReporterOptions,
+): JsonRunResult {
+  return renderJsonDocument(findings, rules, options, []);
+}
+
+/**
+ * Internal: the actual `renderJson` body, factored out so callers
+ * (the CLI) can pass through deprecation / grammar warnings without
+ * copying the shape. Kept unexported — public surface is
+ * `renderJson` + `withScannedFiles` + `withWarnings`.
+ */
+function renderJsonDocument(
+  findings: readonly Finding[],
+  rules: readonly CompiledRule[],
+  options: JsonReporterOptions,
+  warnings: readonly string[],
 ): JsonRunResult {
   const ruleDescriptors: JsonRuleDescriptor[] = rules.map((r) => ({
     id: r.spec.id,
@@ -104,12 +128,12 @@ export function renderJson(
   // with the documented contract (issue #17 acceptance: top-level
   // `scannedFiles` field). The CLI patches the value from
   // `runRules().scannedFiles` before serialising.
-  const result: JsonRunResult = {
+  return {
     rules: ruleDescriptors,
     findings: jsonFindings,
     scannedFiles: 0,
+    warnings,
   };
-  return result;
 }
 
 /**
@@ -124,15 +148,36 @@ export function withScannedFiles(
 }
 
 /**
+ * Attach per-run advisory messages to a JSON result. Returns a new
+ * object — `renderJson()` is pure and reusable in tests. Sub-items 2
+ * and 4 of #57 use this to surface regex-deprecation and grammar-
+ * mismatch warnings alongside the findings, never as a side-channel.
+ */
+export function withWarnings(
+  result: JsonRunResult,
+  warnings: readonly string[],
+): JsonRunResult {
+  return { ...result, warnings };
+}
+
+/**
  * Convenience: build the full JSON document from a `RunResult` in one
  * step. Used by the CLI dispatch in `src/cli.ts:runCheck`.
+ *
+ * Pass `warnings` to thread per-run advisory messages through (regex-
+ * kind deprecation, grammar-mismatch). Omit / pass an empty array for
+ * no advisories.
  */
 export function renderJsonFromRun(
   run: RunResult,
   options: JsonReporterOptions,
+  warnings: readonly string[] = [],
 ): string {
   const result = withScannedFiles(
-    renderJson(run.findings, run.rules, options),
+    withWarnings(
+      renderJson(run.findings, run.rules, options),
+      warnings,
+    ),
     run.scannedFiles,
   );
   return JSON.stringify(result, null, 2) + '\n';

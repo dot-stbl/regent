@@ -2,13 +2,15 @@
  * L1: JSON reporter for `regent check --format json`.
  *
  * Validates the document shape declared in issue #17:
- *   - top-level: { rules, findings, scannedFiles }
+ *   - top-level: { rules, findings, scannedFiles, warnings }
  *   - rules[]:    { id, severity, message, source }
  *   - findings[]: { ruleId, severity, path, match, context, message,
  *                   source, status }
  *   - match:      { line (1-indexed), column (1-indexed), text }
  *   - context:    { lines, startLine (1-indexed), endLine (1-indexed) }
  *   - status:     'violation' | 'pending' | 'accepted'
+ *   - warnings:   per-run advisories (sub-items 2 + 4 of #57);
+ *                 optional consumer-visible string[] always present
  *
  * Also validates edge cases:
  *   - empty findings still produces a valid document
@@ -70,7 +72,14 @@ const finding: Finding = {
 describe('renderJson', () => {
   it('produces the documented top-level shape', () => {
     const result = renderJson([finding], [rule], { cwd: '/abs' });
-    expect(Object.keys(result).sort()).toEqual(['findings', 'rules', 'scannedFiles']);
+    expect(Object.keys(result).sort()).toEqual(
+      ['findings', 'rules', 'scannedFiles', 'warnings'],
+    );
+    // No advisories by default — sub-items 2 + 4 of #57 surface these
+    // only when the runner detects a real signal (regex-rule load or
+    // grammar-mismatch). Tests for those code paths live in
+    // `test/regex-deprecation.test.ts` + `test/lang-version-warn.test.ts`.
+    expect(result.warnings).toEqual([]);
   });
 
   it('attaches one rule descriptor per compiled rule', () => {

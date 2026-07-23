@@ -6,6 +6,49 @@ project rule (`[.stbl](feat/<area>): <subject>`).
 
 ## Unreleased (post-v0.4.0)
 
+### Added — AST-engine follow-up #57 (sub-items 2 + 4)
+
+- **`kind: 'regex'` deprecation warning (#57 sub-item 2).** Loading a
+  detection rule that carries `pattern` (a `kind: 'regex'` shape)
+  emits a one-time `warning: rule '<id>' uses kind: 'regex' which is
+  deprecated; migrate to kind: 'ast' or kind: 'command' (see
+  CONTRIBUTING.md#rule-kinds)` on stderr. The same warning string
+  appears in the new `warnings[]` field on the `regent check
+  --format json` document, so consumers don't have to parse stderr
+  to react. Dedupe is per `(process, rule id)` so a rule loaded via
+  multiple paths in one run warns once. CONTRIBUTING.md adds a
+  three-minor rollout timeline: v0.4 warn, v0.5 stop defaulting to
+  regex in `regent init`, v0.6 remove the kind.
+- **Grammar-version mismatch warning (#57 sub-item 4).** The
+  `LanguageBundle` shape gains an optional `langVersionRange`
+  ({ maxMajor }) and a public `detectGrammarMismatch(bundle, cwd)`
+  helper. The C# bundle pins `maxMajor: 12` so projects declaring
+  C# 13 (or a TFM `net9.0.x`) get a one-line `warning: language
+  csharp: project declares C# 13 (net9.x), but bundle
+  @ast-grep/lang-csharp grammar covers up to C# 12; newer syntax
+  may parse as ERROR nodes (false-negatives, no false-positives)`
+  on stderr AND in `format-json` `warnings[]`. The CLI emits once
+  per `runCheck` invocation, deduped by language via a tiny Set so
+  re-runs inside watch mode don't re-spam. Other bundles (TS / Rust
+  / Go) don't ship a `langVersionRange` today — their project
+  version forms (`target ES2022`, `edition 2021`, `go 1.22`) don't
+  have a comparable "newer than ceiling?" shape, so the warning
+  path is silent for those.
+
+### Deferred from #57 (filed as follow-up issues)
+
+- **Sub-item 1 — `needsNative` declaration.** Rules opt into
+  semantic analysis via a native tool the agent runs through
+  delegate mode (#34). regent stays the knowledge layer.
+  Deferred because it touches the LLM-in-the-loop architecture
+  diagram (separate scope, separate PR).
+- **Sub-item 3 — tri-state review for `ast` rules.** The
+  streaming output (`renderFinding`) and JSON reporter need to
+  surface `ast` rule findings into the review-candidates section
+  when the rule is in review mode. Deferred because the runner
+  hard-codes `status: 'violation'` for AST findings today, which
+  needs to change in lockstep with the reporter wiring — own PR.
+
 ### Added — dogfooding: `tools/audit/rules/` team-authored TS rules
 
 - Three starter `.lint.ts` files in `tools/audit/rules/`:

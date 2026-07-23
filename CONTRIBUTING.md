@@ -147,6 +147,62 @@ Schema so an LLM agent or a human can see exactly which knobs are
 available and their defaults — same workflow as running
 `regent config show`, scoped to a single rule.
 
+## Rule kinds: deprecation timeline (`kind: 'regex'`)
+
+The detection rule kind now in regent — `kind: 'regex'` (a rule that
+carries a `pattern` and matches line-by-line through RE2) — is being
+phased out in favour of structural analysis. New rules should pick
+`kind: 'ast'` (ast-grep matcher) or, when the check needs semantic
+resolution beyond tree-sitter, `kind: 'command'` (a `needsNative`
+declaration that delegates to an external tool — sub-item 1 of #57,
+still pending).
+
+The deprecation rolls out across three minors. Loading a `kind: 'regex'`
+rule emits a one-time `warning:` line to stderr (and the same string
+appears under `warnings[]` in `regent check --format json`) naming the
+rule id and pointing at this section so contributors know where the
+migration target lives.
+
+### Timeline
+
+- **v0.4 (this release).** Recommend `kind: 'ast'` for new rules.
+  Every loaded `kind: 'regex'` rule prints a one-time `warning: rule
+  '<id>' uses kind: 'regex' which is deprecated; migrate to kind:
+  'ast' or kind: 'command' (see CONTRIBUTING.md#rule-kinds)`
+  on stderr and in `format-json`. No exit-code impact. Dedupe is per
+  `(process, rule id)` so a rule loaded through `extends` + an
+  inline declaration only warns once.
+- **v0.5.** `kind: 'regex'` stops being the default recommendation
+  in `regent init` scaffolding; new teams get an `ast`-shaped starter.
+  The deprecation warning continues.
+- **v0.6.** `kind: 'regex'` removed. Existing rules will need a
+  one-shot migration to `kind: 'ast'` (mechanical for most
+  detection patterns; consult `src/ast/` for the ast-grep equivalents
+  or `regent llm authoring ast` for the curated examples) or
+  `kind: 'command'` if `kind: 'ast'` cannot express the pattern.
+
+### Why
+
+`kind: 'ast'` looks at structure: a method body, a field
+declaration, a parameter list. It can disambiguate `.Property("Id")`
+(magic string in EF Core) from `.HasColumnName("id")` (required EF
+mapping) where `kind: 'regex'` would have flagged both or neither,
+depending on the pattern. The Plexor false-positive count for the
+worst C# detection rule dropped from **223 → 0** when the AST path
+shipped in #44 — the structural rule never matches the required
+lambda form in the first place. `kind: 'regex'` is fine for purely
+textual conventions (commit-message shape, TODO-owner syntax, etc.),
+indistinguishable from text.
+
+### Quiet mode
+
+Projects that need to suppress the warning during the migration
+window can filter on `format-json` `warnings[]` and route to their
+own log level. There is **no** `--no-deprecation-warnings` flag
+intentionally — the warning is the contract surface users need to
+plan around, and silencing it in the engine would defeat the
+purpose.
+
 ## Authoring a fix
 
 A rule's optional `fix` attachment tells `regent fix` how to auto-rewrite
