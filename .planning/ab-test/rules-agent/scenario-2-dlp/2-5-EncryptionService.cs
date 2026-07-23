@@ -80,12 +80,9 @@ public sealed class EncryptionService(IKeyProvider keyProvider)
     ///     A byte array consisting of <c>nonce ‖ ciphertext ‖ tag</c>.
     ///     Callers persist this blob verbatim; the nonce is required for decryption.
     /// </returns>
-    /// <exception cref="ArgumentNullException">Thrown when <paramref name="plaintext" /> is null.</exception>
     /// <exception cref="InvalidOperationException">Thrown when the resolved key is not 32 bytes.</exception>
     public async Task<byte[]> EncryptAsync(byte[] plaintext, KeyId keyId, CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(plaintext);
-
         var key = await keyProvider.GetKeyAsync(keyId, cancellationToken);
         EnsureKeyLength(key);
 
@@ -113,12 +110,10 @@ public sealed class EncryptionService(IKeyProvider keyProvider)
     /// <param name="keyId">Target key id.</param>
     /// <param name="cancellationToken">Forwarded to the key provider.</param>
     /// <returns>The decrypted plaintext.</returns>
-    /// <exception cref="ArgumentNullException">Thrown when <paramref name="payload" /> is null.</exception>
     /// <exception cref="ArgumentException">Thrown when <paramref name="payload" /> is too short to be a valid AES-GCM blob.</exception>
     /// <exception cref="CryptographicException">Thrown when the authentication tag does not verify.</exception>
     public async Task<byte[]> DecryptAsync(byte[] payload, KeyId keyId, CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(payload);
         if (payload.Length < NonceSize + TagSize)
         {
             throw new ArgumentException(

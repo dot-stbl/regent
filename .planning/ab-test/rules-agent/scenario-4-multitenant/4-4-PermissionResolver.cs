@@ -89,11 +89,6 @@ public sealed class PermissionResolver(
         UserId userId,
         CancellationToken cancellationToken = default)
     {
-        if (userId is null)
-        {
-            return Array.Empty<Permission>();
-        }
-
         var seen = new HashSet<Scope>();
         var queue = new Queue<Scope>();
         var merged = new Dictionary<(ResourceType Resource, string Action), Permission>();
