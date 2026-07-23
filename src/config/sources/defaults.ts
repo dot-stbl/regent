@@ -29,6 +29,10 @@ export function defaultConfig(): RegentConfig {
     log: { level: 'info', format: 'text' },
     output: { color: true, contextBuffer: 3 },
     runner: { concurrency: 4 },
+    // Empty scopes map: a single-project repo needs no `scopes` block.
+    // `regent check` treats no-scopes as one implicit `default` scope
+    // rooted at cwd (see issue #35).
+    scopes: {},
     // globalRulesPath intentionally absent — undefined means
     // "no override; use the legacy default in the loader".
   };

@@ -225,6 +225,23 @@ const AcceptEntrySchema = z
   })
   .strict();
 
+/**
+ * A single scope entry (issue #35). MVP shape: `{ root: string }`.
+ * Follow-ups will widen this to `extends` / per-scope `rules` /
+ * per-scope `excludePaths` — see `gh issue list --repo
+ * dot-stbl/regent --milestone v0.4.0` for the backlog.
+ *
+ * `root` is a repo-relative path (absolute paths also accepted) that
+ * resolves to the scope's working directory — config discovery, rule
+ * file pickup, and the runner's `cwd` all anchor here when the user
+ * runs `regent <cmd> -s <name>`.
+ */
+const ScopeSpecSchema = z
+  .object({
+    root: z.string().min(1),
+  })
+  .strict();
+
 const RuleOverrideSchema = z
   .object({
     severity: SeveritySchema.optional(),
@@ -336,6 +353,38 @@ export const RegentConfigSchema = z
      * to relocate your house-rules pickup without per-repo config.
      */
     globalRulesPath: z.string().min(1).optional(),
+    /**
+     * Named scopes (issue #35) — a monorepo with multiple subprojects
+     * (e.g. `frontend` + `backend`). Each scope is a distinct subproject
+     * with its own `root` directory. Selecting `-s <name>` on the CLI
+     * narrows the scan to that scope's root; omitting `-s` runs every
+     * scope and tags each finding with its scope name.
+     *
+     * A repo with NO `scopes` block is one implicit `default` scope
+     * rooted at `cwd` — single-project repos don't need the boilerplate.
+     *
+     * MVP shape (issue #35 acceptance criteria): `{ root: string }`.
+     * Future fields (`extends` for inline per-scope config; `exclude`
+     * for scope-level file filters; per-scope `rules` for narrow rule
+     * sets) will be added in follow-ups — see `gh issue list --repo
+     * dot-stbl/regent --milestone v0.4.0` for the backlog.
+     *
+     * Scope names MUST be unique kebab-case identifiers (`a-z`, `0-9`,
+     * dashes) — reserved words and CLI-overlap characters are blocked
+     * to keep `-s <name>` unambiguous.
+     */
+    scopes: z
+      .record(
+        z
+          .string()
+          .min(1)
+          .regex(/^[a-z][a-z0-9-]*$/, {
+            message:
+              'scope names must be lowercase kebab-case (a-z, 0-9, dashes), start with a letter',
+          }),
+        ScopeSpecSchema,
+      )
+      .default({}),
   })
   .strict()
   .default({
@@ -356,12 +405,19 @@ export const RegentConfigSchema = z
     log: { level: 'info', format: 'text' },
     output: { color: true, contextBuffer: 3 },
     runner: { concurrency: 4 },
+    scopes: {},
   });
 
 export type RegentConfig = z.infer<typeof RegentConfigSchema>;
 export type DetectRuleSpec = z.infer<typeof DetectRuleSpecSchema>;
 export type FixRuleSpec = z.infer<typeof FixRuleSpecSchema>;
 export type TransformRuleSpec = z.infer<typeof TransformRuleSpecSchema>;
+/**
+ * A single scope entry from the `scopes: { [name]: { root } }` map.
+ * Only `root` exists today; follow-up issues will widen this shape
+ * (`extends`, per-scope `rules`, per-scope `excludePaths`).
+ */
+export type ScopeSpec = z.infer<typeof ScopeSpecSchema>;
 
 /**
  * Try to parse a candidate object against `RegentConfigSchema`. On

@@ -184,4 +184,59 @@ describe('RegentConfigSchema', () => {
     });
     expect(bad.ok).toBe(false);
   });
+
+  // Issue #35: scope declaration in the root config.
+  it('accepts a scopes map with valid kebab-case names', () => {
+    const result = safeParseConfig({
+      scopes: {
+        frontend: { root: 'apps/web' },
+        'my-backend': { root: 'src' },
+      },
+      rules: { detect: [], fix: [] },
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(Object.keys(result.value.scopes).sort()).toEqual(['frontend', 'my-backend']);
+    }
+  });
+
+  it('defaults scopes to an empty map when omitted (single-project)', () => {
+    const result = safeParseConfig({});
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value.scopes).toEqual({});
+    }
+  });
+
+  it('rejects scope names with uppercase letters', () => {
+    const result = safeParseConfig({
+      scopes: { Frontend: { root: 'apps/web' } },
+      rules: { detect: [], fix: [] },
+    });
+    expect(result.ok).toBe(false);
+  });
+
+  it('rejects scope names with underscores (CLI -s a_b would be ambiguous)', () => {
+    const result = safeParseConfig({
+      scopes: { my_scope: { root: 'src' } },
+      rules: { detect: [], fix: [] },
+    });
+    expect(result.ok).toBe(false);
+  });
+
+  it('rejects scopes entries missing `root`', () => {
+    const result = safeParseConfig({
+      scopes: { frontend: {} },
+      rules: { detect: [], fix: [] },
+    });
+    expect(result.ok).toBe(false);
+  });
+
+  it('rejects scopes entries with unknown fields (strict mode)', () => {
+    const result = safeParseConfig({
+      scopes: { frontend: { root: 'apps/web', extends: 'whatever' } },
+      rules: { detect: [], fix: [] },
+    });
+    expect(result.ok).toBe(false);
+  });
 });

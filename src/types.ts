@@ -404,6 +404,19 @@ export interface Finding {
 
   /** Reason captured if status === 'accepted' (audit trail). */
   readonly acceptedReason?: string;
+
+  /**
+   * Name of the scope this finding belongs to (issue #35). Populated by
+   * the runner from `RunnerScope.scopeName`. `undefined` for single-project
+   * repos (the implicit `default` scope is omitted from output to keep
+   * the single-project case byte-identical to v0.3).
+   *
+   * When `regent check` runs multiple scopes in one invocation, each
+   * finding carries its origin scope so the reporter + downstream
+   * consumers (agents, CI summaries) can route fixes to the right
+   * subproject.
+   */
+  readonly scope?: string;
 }
 
 /** What the runner is asked to scan. */
@@ -413,6 +426,17 @@ export interface RunnerScope {
   readonly excludeGlobs: readonly string[];
   readonly changedOnly: boolean;
   readonly diffBase: string;
+  /**
+   * Scope name to tag every finding with (issue #35). `undefined` for
+   * single-project runs; otherwise one of the names declared in the
+   * root config's `scopes: { [name]: { root } }` map (or `'default'`
+   * for the implicit single-project case if the caller wants the tag
+   * visible).
+   *
+   * The CLI wires this from `-s <name>`; the loader threads it from
+   * `loadRules({ scopeName })`.
+   */
+  readonly scopeName?: string;
 }
 
 /** Result of evaluating every applicable rule across every file. */

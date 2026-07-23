@@ -70,6 +70,13 @@ import type {
 } from '../types.js';
 import { toV1Json } from '../reporter/fix-schema.js';
 import { flushAndExit } from './exit.js';
+import { loadConfig } from '../config/index.js';
+import {
+  defaultScopes,
+  parseScopeNames,
+  resolveScopes,
+  type ResolvedScope,
+} from '../config/scopes.js';
 
 /** Per-AST-rule and per-transform rules are out of scope for the P3
  *  fixer engine (which only consumes `RuleSpec` + `Finding`); skip
@@ -91,6 +98,15 @@ export interface FixOptions {
   yes?: boolean;
   /** Fixpoint iteration cap for converging rules (Phase 4 of #7). */
   maxPasses?: number;
+  /**
+   * Issue #35: scope name to fix. When provided, the fix command
+   * narrows to a single scope's root and tags every applied edit /
+   * suggestion with the scope name. Comma-separated for multi-scope
+   * runs. When omitted, the implicit `default` scope is used
+   * (single-project case) or every declared scope runs in turn
+   * (multi-scope root config).
+   */
+  scope?: string;
 }
 
 export interface RunFixArgs {
@@ -119,6 +135,7 @@ export function registerFixCommand(program: Command): void {
     .command('fix')
     .description('apply auto-fixes; --dry-run for diff-only, --unsafe for function fixes, --max-passes <n> for fixpoint')
     .argument('[paths...]', 'paths to scan (default: cwd)')
+    .option('-s, --scope <names>', 'scope name(s), comma-separated (issue #35; default: all scopes, or implicit `default` for single-project repos)')
     .option('--dry-run', 'print what would change; do not write')
     .option('--unsafe', 'enable function-form and safety=suggested fixes; review the diff')
     .option('--all', 'DEPRECATED alias for --unsafe (will be removed in v2)')
@@ -208,10 +225,23 @@ export async function runFix({ paths, options }: RunFixArgs): Promise<number> {
   const lane = resolveLane(options);
   const isJson = format === 'json';
 
-  // 1. Load rules + config
+  // Issue #35: resolve the scope to fix. `-s frontend` narrows to that
+  // scope's root. Multi-scope `-s a,b` is not supported in `fix` —
+  // destructive ops need an explicit per-scope confirmation, which is
+  // a UX surface that belongs in a follow-up.
+  const repoConfigResult = await loadConfig({ cwd });
+  const requestedScopes = parseScopeNames(options.scope);
+  const targetScope: ResolvedScope = requestedScopes.length > 0
+    ? resolveScopes(repoConfigResult.config, requestedScopes, cwd)[0]!
+    : defaultScopes(repoConfigResult.config, cwd)[0]!;
+
+  // 1. Load rules + config (anchored at the scope's root).
   let loaded: Awaited<ReturnType<typeof loadRules>>;
   try {
-    loaded = await loadRules({ repoRoot: cwd });
+    loaded = await loadRules({
+      repoRoot: cwd,
+      ...(targetScope.name === 'default' ? {} : { scope: targetScope }),
+    });
   } catch (err) {
     return cliError(useColor, `failed to load rules: ${(err as Error).message}`);
   }
@@ -235,10 +265,14 @@ export async function runFix({ paths, options }: RunFixArgs): Promise<number> {
   }
 
   // 2. Build RunnerScope. Variadic [paths...] narrows the scan via
-  //    includeGlobs — when empty, default to the project root.
+  //    includeGlobs — when empty, default to the scope's root. The
+  //    scope's root becomes the runner's `cwd`, so paths passed on
+  //    the CLI are interpreted relative to the scope (e.g.
+  //    `regent fix -s frontend src/Foo.tsx` looks under
+  //    `<scope.root>/src/Foo.tsx`).
   const includeGlobs: readonly string[] = paths.length > 0 ? paths : ['**/*'];
   const scope: RunnerScope = {
-    cwd,
+    cwd: targetScope.root,
     includeGlobs,
     excludeGlobs: EXCLUDE_GLOBS,
     // `fix` defaults to whole-tree scan: unlike `check` (a passive
@@ -250,6 +284,7 @@ export async function runFix({ paths, options }: RunFixArgs): Promise<number> {
     // arguments).
     changedOnly: false,
     diffBase: 'HEAD',
+    scopeName: targetScope.name === 'default' ? undefined : targetScope.name,
   };
 
   // 3. Detect (regex rules only — applyFixes does not yet understand
@@ -317,9 +352,12 @@ export async function runFix({ paths, options }: RunFixArgs): Promise<number> {
     }
   }
 
-  // 8. Run the engine.
+  // 8. Run the engine. `cwd` here is the scope's root so file
+  //    paths in the deferred / suggested entries are correctly
+  //    interpreted by `applyFixes` (it reads files relative to
+  //    `cwd`).
   const applyOptions: ApplyFixesOptions = {
-    cwd,
+    cwd: targetScope.root,
     dryRun: options.dryRun === true,
     lane,
     ...(options.maxPasses !== undefined ? { maxPasses: options.maxPasses } : {}),

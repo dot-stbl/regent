@@ -186,3 +186,27 @@ describe('renderJsonFromRun', () => {
     expect(parsed.rules).toHaveLength(1);
   });
 });
+
+describe('renderJson — scope tag (issue #35)', () => {
+  it('includes scope on findings that carry one', () => {
+    const scoped: Finding = { ...finding, scope: 'frontend' };
+    const result = renderJson([scoped], [rule], { cwd: '/abs' });
+    expect(result.findings[0]?.scope).toBe('frontend');
+  });
+
+  it('omits scope when finding has no scope (single-project shape)', () => {
+    const result = renderJson([finding], [rule], { cwd: '/abs' });
+    expect(result.findings[0]?.scope).toBeUndefined();
+    expect(Object.keys(result.findings[0]!)).not.toContain('scope');
+  });
+
+  it('omits scope when finding.scope is the implicit "default" (single-project tag suppression)', () => {
+    // The CLI passes `scope: undefined` for the implicit single-project
+    // case rather than `scope: 'default'` — but if a caller does pass
+    // 'default' (e.g. a test), the reporter must drop it to preserve
+    // the byte-identical single-project shape.
+    const implicit: Finding = { ...finding, scope: 'default' };
+    const result = renderJson([implicit], [rule], { cwd: '/abs' });
+    expect(result.findings[0]?.scope).toBeUndefined();
+  });
+});

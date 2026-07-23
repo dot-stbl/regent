@@ -50,6 +50,8 @@ import { loadLlmText } from './llm.js';
 import { routeLlm } from './llm-router.js';
 import { renderDetectSchemaJson, renderFixRuleSchemaJson } from './llm-schema.js';
 import { loadConfig } from './config/index.js';
+import type { ResolvedConfig } from './config/index.js';
+import { defaultScopes, parseScopeNames, resolveScopes, type ResolvedScope } from './config/scopes.js';
 import {
   showField,
   formatShow,
@@ -98,9 +100,9 @@ function getLogger(): Logger {
 
 program
   .command('check')
-  .description('Run rules against the configured scope')
+  .description('Run rules against the configured scope (or every declared scope when none selected)')
   .option('--config <path>', 'config path', 'tools/audit/config.ts')
-  .option('--scope <dir>', 'scope directory', '.')
+  .option('-s, --scope <names>', 'scope name(s), comma-separated (default: all scopes, or implicit `default` for single-project repos)')
   .option('--all', 'scan all files (not just git-changed)')
   .option('--diff-base <ref>', 'git diff base', 'HEAD')
   .option('--format <fmt>', 'output format', 'text')
@@ -132,7 +134,7 @@ program
   .command('review')
   .description('Surface pending review findings (markdown or json)')
   .option('--config <path>', 'config path', 'tools/audit/config.ts')
-  .option('--scope <dir>', 'scope directory', '.')
+  .option('-s, --scope <names>', 'scope name(s), comma-separated (default: all scopes, or implicit `default` for single-project repos)')
   .option('--all', 'scan all files')
   .option('--format <fmt>', 'markdown|json', 'markdown')
   .option('--include-accepted', 'also surface accepted findings (audit)')
@@ -145,9 +147,19 @@ program
   .command('list')
   .description('Print every loaded rule + origin')
   .option('--config <path>', 'config path', 'tools/audit/config.ts')
-  .option('--scope <dir>', 'scope directory', '.')
+  .option('-s, --scope <name>', 'scope name (default: implicit `default` for single-project repos)')
   .action(async (options) => {
     await runList(options);
+  });
+
+program
+  .command('scopes')
+  .description('List configured scopes + toolchain (issue #35)')
+  .option('--config <path>', 'config path', 'tools/audit/config.ts')
+  .option('--format <fmt>', 'output format', 'text')
+  .action(async (options) => {
+    const exitCode = await runScopes(options);
+    await flushAndExit(exitCode);
   });
 
 program
@@ -197,7 +209,7 @@ program
   .command('explain <rule-id>')
   .description('Show the source path for a rule and link to its prose')
   .option('--config <path>', 'config path', 'tools/audit/config.ts')
-  .option('--scope <dir>', 'scope directory', '.')
+  .option('-s, --scope <name>', 'scope name (default: implicit `default` for single-project repos)')
   .action(async (ruleId: string, options) => {
     await runExplain(ruleId, options);
   });
@@ -433,43 +445,177 @@ async function runCheck(options: CheckOptions): Promise<number> {
   const hideReview = options.review === false;
   const columns = resolveColumns(options);
 
-  let loadedRules;
-  try {
-    loadedRules = await loadRules({ repoRoot: cwd, args: cliArgsFromOptions(options) });
-  } catch (err) {
-    getLogger().error({ err: { message: (err as Error).message } }, 'failed to load rules');
+  // Issue #35: resolve the scope list to scan. No `-s` → either the
+  // implicit `default` (single-project repos) or every declared scope.
+  // `-s frontend,backend` → that explicit set, in the order given.
+  // `loadConfig` runs once at the repo level so we can read the
+  // `scopes:` map; per-scope re-loads happen below.
+  const repoConfigResult = await loadConfig({ cwd, args: cliArgsFromOptions(options) });
+  const requestedScopes = parseScopeNames(options.scope);
+  const scopesToRun: ResolvedScope[] = requestedScopes.length > 0
+    ? resolveScopes(repoConfigResult.config, requestedScopes, cwd)
+    : defaultScopes(repoConfigResult.config, cwd);
+
+  const exitOn = (options.exitOn as Severity) ?? 'error';
+  const format = (options.format as string) ?? 'text';
+  const severity = options.severity as Severity | undefined;
+  const displayFilters: {
+    hideReview: boolean;
+    minSeverity: number | null;
+  } = {
+    hideReview,
+    minSeverity: severity !== undefined ? severityRank(severity) : null,
+  };
+
+  // Watch + stream paths run against a single scope (the implicit
+  // `default` or the explicit one). Multi-scope watch/stream lands
+  // in a follow-up issue — the UX is non-trivial (per-scope cache,
+  // per-scope file watcher) and outside the MVP.
+  if (options.watch || options.stream) {
+    if (scopesToRun.length > 1) {
+      getLogger().error(
+        { count: scopesToRun.length },
+        '--watch / --stream do not support multiple scopes; pick one with -s',
+      );
+      return 1;
+    }
+    return runCheckSingleScope({
+      scope: scopesToRun[0]!,
+      cwd,
+      repoConfig: repoConfigResult.config,
+      options,
+      useColor,
+      hideReview,
+      severity,
+      exitOn,
+      columns,
+      format,
+    });
+  }
+
+  // Bulk path: scan every selected scope, concat findings (already
+  // tagged with the scope name by the runner), emit once.
+  const allFindings: Finding[] = [];
+  const allRules: CompiledRule[] = [];
+  const allWarnings: string[] = [];
+  let allScannedFiles = 0;
+
+  for (const scope of scopesToRun) {
+    const loadedRules = await loadRulesForScope(scope, cwd, cliArgsFromOptions(options));
+    if (loadedRules === null) {
+      // Scope config couldn't load — surface the error and stop
+      // (silent fallback would mask typos like a missing -s value
+      // resolving to the wrong root).
+      return 1;
+    }
+
+    // Apply CLI --include-rules / --exclude-rules filters per scope.
+    const filteredRules = filterRules(loadedRules.rules, options);
+    const filteredAstRules = filterRules(loadedRules.astRules, options);
+
+    const runWarnings = collectRunWarnings(loadedRules, filteredAstRules, scope.root);
+    for (const w of runWarnings) {
+      allWarnings.push(w);
+    }
+    emitWarningsToStderr(runWarnings, useColor);
+
+    const runnerScope: RunnerScope = {
+      cwd: scope.root,
+      includeGlobs: ['**/*'],
+      excludeGlobs: [
+        '**/node_modules/**',
+        '**/dist/**',
+        '**/bin/**',
+        '**/obj/**',
+        '**/.git/**',
+      ],
+      changedOnly: !options.all,
+      diffBase: options.diffBase as string,
+      // scopeName wired through to Finding.scope — the runner adds it
+      // to every finding it emits. The implicit single-project
+      // `default` is treated as "no tag" (single-project shape).
+      scopeName: scope.name === 'default' ? undefined : scope.name,
+    };
+
+    const result = await runRules(filteredRules, runnerScope, {
+      acceptList: loadedRules.acceptList,
+      contextBuffer: loadedRules.resolvedConfig.output.contextBuffer,
+      concurrency: loadedRules.resolvedConfig.runner.concurrency,
+      astRules: filteredAstRules,
+    });
+    allFindings.push(...result.findings);
+    for (const r of result.rules) {
+      if (!allRules.some((existing) => existing.spec.id === r.spec.id)) {
+        allRules.push(r);
+      }
+    }
+    allScannedFiles += result.scannedFiles;
+  }
+
+  const displayFindings = applyDisplayFilters(allFindings, displayFilters);
+
+  let output = '';
+  if (format === 'sarif') {
+    output = renderSarif(displayFindings, allRules, { cwd });
+  } else if (format === 'json') {
+    output = renderJsonFromRun(
+      { findings: displayFindings, rules: allRules, scannedFiles: allScannedFiles },
+      { cwd },
+      allWarnings,
+    );
+  } else if (format === 'both') {
+    output = renderText(displayFindings, { cwd, useColor, hideReview, columns });
+    output += '\n--- SARIF ---\n';
+    output += renderSarif(displayFindings, allRules, { cwd });
+  } else {
+    output = renderText(displayFindings, { cwd, useColor, hideReview, columns });
+    output += '\n' + renderSummary(displayFindings, allRules, useColor);
+  }
+
+  if (options.out) {
+    writeFileSync(options.out as string, output, 'utf8');
+  } else {
+    process.stdout.write(output);
+  }
+
+  // Exit code on the FULL finding set (not the display-filtered one)
+  // — `--severity` / `--no-review` change what is printed, never the
+  // exit code.
+  return computeExitCode(allFindings, exitOn);
+}
+
+/**
+ * Single-scope variant for `--watch` / `--stream` — both require a
+ * single runner scope to be sensible (one watcher, one progress
+ * spinner). The bulk path above handles multi-scope non-interactive
+ * runs.
+ */
+async function runCheckSingleScope(args: {
+  readonly scope: ResolvedScope;
+  readonly cwd: string;
+  readonly repoConfig: ResolvedConfig;
+  readonly options: CheckOptions;
+  readonly useColor: boolean;
+  readonly hideReview: boolean;
+  readonly severity: Severity | undefined;
+  readonly exitOn: Severity;
+  readonly columns: number | undefined;
+  readonly format: string;
+}): Promise<number> {
+  const { scope, cwd, options, useColor, hideReview, severity, exitOn, columns, format } = args;
+  const loadedRules = await loadRulesForScope(scope, cwd, cliArgsFromOptions(options));
+  if (loadedRules === null) {
     return 1;
   }
 
-  let rules = loadedRules.rules;
+  const filteredRules = filterRules(loadedRules.rules, options);
+  const filteredAstRules = filterRules(loadedRules.astRules, options);
 
-  if (options.includeRules) {
-    const patterns = (options.includeRules as string).split(',').map((s) => s.trim());
-    rules = rules.filter((r) => patterns.some((p) => globMatch(r.spec.id, p)));
-  }
-  if (options.excludeRules) {
-    const ids = new Set((options.excludeRules as string).split(',').map((s) => s.trim()));
-    rules = rules.filter((r) => !ids.has(r.spec.id));
-  }
-
-  let astRules = loadedRules.astRules;
-  if (options.includeRules) {
-    const patterns = (options.includeRules as string).split(',').map((s) => s.trim());
-    astRules = astRules.filter((r) => patterns.some((p) => globMatch(r.spec.id, p)));
-  }
-  if (options.excludeRules) {
-    const ids = new Set((options.excludeRules as string).split(',').map((s) => s.trim()));
-    astRules = astRules.filter((r) => !ids.has(r.spec.id));
-  }
-
-  // Per-run advisory messages surfaced to stderr + `--format json`
-  // `warnings` (sub-items 2 and 4 of #57). Collected BEFORE the scan
-  // so they reach the user immediately even on scan failure.
-  const runWarnings = collectRunWarnings(loadedRules, astRules, cwd);
+  const runWarnings = collectRunWarnings(loadedRules, filteredAstRules, scope.root);
   emitWarningsToStderr(runWarnings, useColor);
 
-  const scope: RunnerScope = {
-    cwd,
+  const runnerScope: RunnerScope = {
+    cwd: scope.root,
     includeGlobs: ['**/*'],
     excludeGlobs: [
       '**/node_modules/**',
@@ -480,100 +626,105 @@ async function runCheck(options: CheckOptions): Promise<number> {
     ],
     changedOnly: !options.all,
     diffBase: options.diffBase as string,
+    scopeName: scope.name === 'default' ? undefined : scope.name,
   };
 
   const contextBuffer = loadedRules.resolvedConfig.output.contextBuffer;
   const concurrency = loadedRules.resolvedConfig.runner.concurrency;
 
-  // Watch path: run an initial scan, then re-run on every file change.
-  // Cache entries for changed files are invalidated between iterations
-  // so the next scan rebuilds them.
   if (options.watch) {
     return runCheckWatch({
-      cwd,
-      scope,
-      rules,
-      astRules,
+      cwd: scope.root,
+      scope: runnerScope,
+      rules: filteredRules,
+      astRules: filteredAstRules,
       loadedRules,
       runWarnings,
       useColor,
       hideReview,
-      severity: options.severity as Severity | undefined,
-      exitOn: (options.exitOn as Severity) ?? 'error',
+      severity,
+      exitOn,
       columns,
-      format: (options.format as string) ?? 'text',
+      format,
     });
   }
 
-  // Streaming path (text only): print findings live + a progress indicator.
-  if (options.stream && ((options.format as string | undefined) ?? 'text') === 'text') {
-    return runCheckStream(rules, astRules, scope, {
-      acceptList: loadedRules.acceptList,
-      contextBuffer,
-      concurrency,
-    }, {
-      cwd,
-      useColor,
-      hideReview,
-      severity: options.severity as Severity | undefined,
-      exitOn: (options.exitOn as Severity) ?? 'error',
-      columns,
-    });
-  }
-
-  const result = await runRules(rules, scope, {
+  // Streaming path (text only)
+  return runCheckStream(filteredRules, filteredAstRules, runnerScope, {
     acceptList: loadedRules.acceptList,
     contextBuffer,
     concurrency,
-    astRules,
+  }, {
+    cwd: scope.root,
+    useColor,
+    hideReview,
+    severity,
+    exitOn,
+    columns,
   });
-  let findings = result.findings;
+}
 
-  // Violations-only flag (drop pending review)
-  if (hideReview) {
-    findings = findings.filter((f) => f.status !== 'pending');
-  }
-
-  if (options.severity) {
-    const minThreshold = severityRank(options.severity as Severity);
-    findings = findings.filter((f) => severityRank(f.severity) >= minThreshold);
-  }
-
-  const format = options.format as string;
-  let output = '';
-  if (format === 'sarif') {
-    output = renderSarif(findings, result.rules, { cwd });
-  } else if (format === 'json') {
-    // The JSON reporter carries the runner's `scannedFiles` count on
-    // the top-level document; build a fresh RunResult so the
-    // display-filtered findings + the scan stats line up. The JSON
-    // shape mirrors `src/types.ts:RunResult`. Per-run advisories
-    // (regex-deprecation, grammar-mismatch) thread through the
-    // `warnings` field so consumers see the same data stderr prints.
-    output = renderJsonFromRun(
-      { findings, rules: result.rules, scannedFiles: result.scannedFiles },
-      { cwd },
-      runWarnings,
+/**
+ * Load the ruleset for a single scope (or the implicit `default`
+ * scope). Returns `null` if config loading fails — the caller
+ * surfaces the error and exits non-zero.
+ */
+async function loadRulesForScope(
+  scope: ResolvedScope,
+  repoRoot: string,
+  args: { logLevel?: string; logFormat?: string; color?: boolean; cache?: boolean; contextBuffer?: number; concurrency?: number },
+): Promise<Awaited<ReturnType<typeof loadRules>> | null> {
+  try {
+    return await loadRules({
+      repoRoot,
+      // Implicit `default` is a single-project repo — anchor the
+      // loader at the repo root, not at scope.root (they're the
+      // same, but the type signature distinguishes the two cases).
+      ...(scope.name === 'default' ? {} : { scope }),
+      args,
+    });
+  } catch (err) {
+    getLogger().error(
+      { scope: scope.name, err: { message: (err as Error).message } },
+      `failed to load rules for scope '${scope.name}'`,
     );
-  } else if (format === 'both') {
-    output = renderText(findings, { cwd, useColor, hideReview, columns });
-    output += '\n--- SARIF ---\n';
-    output += renderSarif(findings, result.rules, { cwd });
-  } else {
-    output = renderText(findings, { cwd, useColor, hideReview, columns });
-    output += '\n' + renderSummary(findings, result.rules, useColor);
+    return null;
   }
+}
 
-  if (options.out) {
-    writeFileSync(options.out as string, output, 'utf8');
-  } else {
-    process.stdout.write(output);
+/**
+ * Apply `--include-rules` / `--exclude-rules` filters to a rule list.
+ * Factored out so the per-scope loop in `runCheck` and the
+ * single-scope paths share one implementation.
+ */
+function filterRules<T extends { spec: { id: string } }>(
+  rules: readonly T[],
+  options: CheckOptions,
+): T[] {
+  let out: T[] = [...rules];
+  if (options.includeRules) {
+    const patterns = (options.includeRules as string).split(',').map((s) => s.trim());
+    out = out.filter((r) => patterns.some((p) => globMatch(r.spec.id, p)));
   }
+  if (options.excludeRules) {
+    const ids = new Set((options.excludeRules as string).split(',').map((s) => s.trim()));
+    out = out.filter((r) => !ids.has(r.spec.id));
+  }
+  return out;
+}
 
-  // Exit code is computed on the FULL finding set (result.findings), not
-  // the display-filtered `findings` — `--severity` / `--no-review` change
-  // what is printed, never the exit code.
-  return computeExitCode(result.findings, (options.exitOn as Severity) ?? 'error');
+function applyDisplayFilters(
+  findings: readonly Finding[],
+  filters: { hideReview: boolean; minSeverity: number | null },
+): Finding[] {
+  let out: Finding[] = [...findings];
+  if (filters.hideReview) {
+    out = out.filter((f) => f.status !== 'pending');
+  }
+  if (filters.minSeverity !== null) {
+    out = out.filter((f) => severityRank(f.severity) >= filters.minSeverity!);
+  }
+  return out;
 }
 
 /**
@@ -778,47 +929,59 @@ function computeExitCode(findings: readonly Finding[], exitOn: Severity): number
 
 async function runReview(options: ReviewOptions): Promise<number> {
   const cwd = process.cwd();
-  const loaded = await loadRules({
-    repoRoot: cwd,
-    args: cliArgsFromOptions({}),
-  });
 
-  const scope: RunnerScope = {
-    cwd,
-    includeGlobs: ['**/*'],
-    excludeGlobs: [
-      '**/node_modules/**',
-      '**/dist/**',
-      '**/bin/**',
-      '**/obj/**',
-      '**/.git/**',
-    ],
-    changedOnly: !options.all,
-    diffBase: 'HEAD',
-  };
+  // Issue #35: resolve scopes — multi-scope runs are supported (the
+  // review report just shows findings from every scope in turn,
+  // tagged by scope).
+  const repoConfigResult = await loadConfig({ cwd });
+  const requested = parseScopeNames(options.scope);
+  const scopesToRun: ResolvedScope[] = requested.length > 0
+    ? resolveScopes(repoConfigResult.config, requested, cwd)
+    : defaultScopes(repoConfigResult.config, cwd);
 
-  const result = await runRules(loaded.rules, scope, {
-    acceptList: loaded.acceptList,
-    contextBuffer: loaded.resolvedConfig.output.contextBuffer,
-    concurrency: loaded.resolvedConfig.runner.concurrency,
-  });
+  const allFindings: Finding[] = [];
+  const acceptLists: AcceptEntry[] = [];
 
-  // Strip violations from review output — review only shows pending
-  // (and optionally accepted for audit).
-  const pending = result.findings.filter((f) => f.status === 'pending');
-  const accepted = result.findings.filter((f) => f.status === 'accepted');
+  for (const scope of scopesToRun) {
+    const loaded = await loadRules({
+      repoRoot: cwd,
+      ...(scope.name === 'default' ? {} : { scope }),
+      args: cliArgsFromOptions({}),
+    });
+
+    const runnerScope: RunnerScope = {
+      cwd: scope.root,
+      includeGlobs: ['**/*'],
+      excludeGlobs: [
+        '**/node_modules/**',
+        '**/dist/**',
+        '**/bin/**',
+        '**/obj/**',
+        '**/.git/**',
+      ],
+      changedOnly: !options.all,
+      diffBase: 'HEAD',
+      scopeName: scope.name === 'default' ? undefined : scope.name,
+    };
+
+    const result = await runRules(loaded.rules, runnerScope, {
+      acceptList: loaded.acceptList,
+      contextBuffer: loaded.resolvedConfig.output.contextBuffer,
+      concurrency: loaded.resolvedConfig.runner.concurrency,
+    });
+    allFindings.push(...result.findings);
+    acceptLists.push(...loaded.acceptList);
+  }
 
   const format = options.format as string;
   let output = '';
   if (format === 'json') {
-    output = renderReviewJson(result.findings, loaded.acceptList, {
+    output = renderReviewJson(allFindings, acceptLists, {
       cwd,
       includeAccepted: !!options.includeAccepted,
     });
-    void (pending);
-    void (accepted);
   } else {
-    output = renderReview(result.findings, loaded.acceptList, {
+    output = renderReview(allFindings, acceptLists, {
       cwd,
       includeAccepted: !!options.includeAccepted,
     });
@@ -833,31 +996,57 @@ async function runReview(options: ReviewOptions): Promise<number> {
   return 0;
 }
 
-async function runList(_options: ListOptions): Promise<void> {
+async function runList(options: ListOptions): Promise<void> {
   const cwd = process.cwd();
   const useColor = shouldUseColor({ color: true } as unknown as CheckOptions);
 
-  const loaded = await loadRules({ repoRoot: cwd });
+  // Resolve the (single) scope for `list`. Default = implicit
+  // single-project; `-s frontend` = that scope.
+  const repoConfigResult = await loadConfig({ cwd });
+  const requested = parseScopeNames(options.scope);
+  const scope: ResolvedScope = requested.length > 0
+    ? resolveScopes(repoConfigResult.config, requested, cwd)[0]!
+    : defaultScopes(repoConfigResult.config, cwd)[0]!;
+
+  const loaded = await loadRules({
+    repoRoot: cwd,
+    ...(scope.name === 'default' ? {} : { scope }),
+  });
   for (const r of loaded.rules) {
     const sev = severityColored(r.spec.severity, useColor);
     const reviewFlag = r.spec.review?.enabled
       ? ` ${pc.cyan('[review]')}`
       : '';
     const origin = formatOrigin(r.origin);
-    console.log(`${r.spec.id}\t${sev}${reviewFlag}\t${origin}`);
+    const scopeTag = scope.name === 'default' ? '' : ` ${pc.dim(`[${scope.name}]`)}`;
+    console.log(`${r.spec.id}${scopeTag}\t${sev}${reviewFlag}\t${origin}`);
   }
 }
 
-async function runExplain(ruleId: string, _options: ListOptions): Promise<void> {
+async function runExplain(ruleId: string, options: ListOptions): Promise<void> {
   const cwd = process.cwd();
-  const loaded = await loadRules({ repoRoot: cwd });
+
+  // Resolve scope (same logic as runList — `explain` is also single-scope).
+  const repoConfigResult = await loadConfig({ cwd });
+  const requested = parseScopeNames(options.scope);
+  const scope: ResolvedScope = requested.length > 0
+    ? resolveScopes(repoConfigResult.config, requested, cwd)[0]!
+    : defaultScopes(repoConfigResult.config, cwd)[0]!;
+
+  const loaded = await loadRules({
+    repoRoot: cwd,
+    ...(scope.name === 'default' ? {} : { scope }),
+  });
   const rule = loaded.rules.find((r) => r.spec.id === ruleId);
   if (!rule) {
-    getLogger().error({ ruleId }, 'rule not found');
+    getLogger().error({ ruleId, scope: scope.name }, 'rule not found in scope');
     process.exitCode = 1;
     return;
   }
   console.log(`${pc.bold(rule.spec.id)}  ${pc.dim(rule.spec.severity)}`);
+  if (scope.name !== 'default') {
+    console.log(`  ${pc.dim(`scope: ${scope.name}  (root: ${scope.root})`)}`);
+  }
   if (rule.spec.review?.enabled) {
     console.log(`  ${pc.cyan('review-mode')}  ${rule.spec.review.exitBehavior ?? 'no-fail'}`);
   }
@@ -875,6 +1064,68 @@ async function runExplain(ruleId: string, _options: ListOptions): Promise<void> 
       console.log(`    ${line}`);
     }
   }
+}
+
+/**
+ * `regent scopes` — list configured scopes + their toolchain. For each
+ * declared scope, prints the name, repo-relative root, absolute root,
+ * and whether a `.regentrc.*` exists under the root (so users can spot
+ * typos that would otherwise surface as zero-finding runs).
+ *
+ * No-`scopes` repos show one implicit `default` scope rooted at cwd —
+ * the same UX `regent check` falls back to.
+ */
+async function runScopes(options: ScopesOptions): Promise<number> {
+  const cwd = process.cwd();
+  const useColor = shouldUseColor({ color: true } as unknown as CheckOptions);
+  const format = (options.format as string | undefined) ?? 'text';
+
+  let configResult;
+  try {
+    configResult = await loadConfig({ cwd });
+  } catch (err) {
+    getLogger().error({ err: { message: (err as Error).message } }, 'failed to load config');
+    return 1;
+  }
+
+  const scopes = defaultScopes(configResult.config, cwd);
+  const declared = Object.keys(configResult.config.scopes);
+
+  if (format === 'json') {
+    const out = {
+      cwd,
+      scopes: scopes.map((scope) => ({
+        name: scope.name,
+        root: scope.relativeRoot,
+        absoluteRoot: scope.root,
+        implicit: scope.name === 'default' && declared.length === 0,
+      })),
+    };
+    process.stdout.write(`${JSON.stringify(out, null, 2)}\n`);
+    return 0;
+  }
+
+  // Text mode — table-ish layout. Use color sparingly (matches the
+  // tone of `regent bundles` rather than the text reporter's
+  // detail-per-finding).
+  const c = useColor ? pc : pc;
+  if (scopes.length === 0) {
+    process.stdout.write(`${c.dim('(no scopes)')}\n`);
+    return 0;
+  }
+
+  const header = `${c.bold('name')}\t${c.bold('root')}\t${c.bold('config')}`;
+  process.stdout.write(`${header}\n`);
+  for (const scope of scopes) {
+    const exists = existsSync(scope.root);
+    const configMark = scope.name === 'default' && declared.length === 0
+      ? c.dim('(implicit)')
+      : exists
+        ? c.green('found')
+        : c.yellow('missing');
+    process.stdout.write(`${scope.name}\t${scope.relativeRoot}\t${configMark}\n`);
+  }
+  return 0;
 }
 
 async function runAccept(
@@ -1356,6 +1607,7 @@ function globMatch(value: string, pattern: string): boolean {
 
 interface CheckOptions {
   config?: string;
+  /** Comma-separated scope names; `-s frontend,backend`. */
   scope?: string;
   all?: string;
   diffBase?: string;
@@ -1375,6 +1627,7 @@ interface CheckOptions {
 
 interface ReviewOptions {
   config?: string;
+  /** Comma-separated scope names. */
   scope?: string;
   all?: boolean;
   format?: string;
@@ -1383,7 +1636,13 @@ interface ReviewOptions {
 
 interface ListOptions {
   config?: string;
+  /** Single scope name for `list` — list is single-scope only. */
   scope?: string;
+}
+
+interface ScopesOptions {
+  config?: string;
+  format?: string;
 }
 
 interface AcceptOptions {

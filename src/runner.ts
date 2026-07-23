@@ -142,7 +142,7 @@ export async function* runRulesStream(
   for await (const r of mapConcurrent(
     files,
     concurrency,
-    (file) => scanFile(file, compiled, astRules, acceptList, contextBuffer),
+    (file) => scanFile(file, compiled, astRules, acceptList, contextBuffer, scope.scopeName),
   )) {
     processed++;
     if (r !== null) {
@@ -425,6 +425,7 @@ async function scanFile(
   astRules: readonly CompiledAstRule[],
   acceptList: readonly AcceptEntry[],
   contextBuffer: number,
+  scopeName?: string,
 ): Promise<{ findings: Finding[] } | null> {
   let content: string;
   try {
@@ -436,7 +437,7 @@ async function scanFile(
   } catch {
     return null;
   }
-  return scanFileContent(content, file, compiled, astRules, acceptList, contextBuffer);
+  return scanFileContent(content, file, compiled, astRules, acceptList, contextBuffer, scopeName);
 }
 
 /**
@@ -462,6 +463,7 @@ async function scanFileContent(
   astRules: readonly CompiledAstRule[],
   acceptList: readonly AcceptEntry[],
   contextBuffer: number,
+  scopeName?: string,
 ): Promise<{ findings: Finding[] }> {
   const findings: Finding[] = [];
   const fileLines = content.split('\n');
@@ -538,6 +540,11 @@ async function scanFileContent(
             }
           : {}),
         ...(acceptHit ? { acceptedReason: acceptHit.reason } : {}),
+        // Scope tag (issue #35) — threaded through the runner so the
+        // reporter + downstream consumers know which subproject this
+        // finding belongs to. Omitted entirely for single-project runs
+        // to keep the wire shape identical for users who don't opt in.
+        ...(scopeName !== undefined ? { scope: scopeName } : {}),
       };
 
       findings.push(finding);
@@ -586,6 +593,7 @@ async function scanFileContent(
             source: astRule.source,
             rationale: astRule.spec.rationale,
             status: 'violation',
+            ...(scopeName !== undefined ? { scope: scopeName } : {}),
           });
         }
       }
@@ -612,6 +620,13 @@ export interface DetectFileOptions extends RunOptions {
    * which already has the post-edit content in memory.
    */
   readonly content?: string;
+
+  /**
+   * Scope name to tag every finding with (issue #35). Mirrors
+   * `RunnerScope.scopeName` — when omitted, findings are emitted
+   * without a scope tag (single-project shape).
+   */
+  readonly scopeName?: string;
 }
 
 /**
@@ -680,6 +695,7 @@ export async function detectFile(
     options.astRules ?? [],
     options.acceptList ?? [],
     contextBuffer,
+    options.scopeName,
   );
   return result.findings;
 }

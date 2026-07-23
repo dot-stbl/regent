@@ -46,6 +46,14 @@ export interface JsonFinding {
   readonly message: string;
   readonly source: string;
   readonly status: 'violation' | 'pending' | 'accepted';
+  /**
+   * Scope name this finding belongs to (issue #35). `undefined` for
+   * single-project runs; one of the names declared in the root
+   * config's `scopes: { [name]: { root } }` map otherwise. The
+   * implicit single-project scope (`default`) is also omitted so
+   * the single-project JSON shape stays identical to v0.3.
+   */
+  readonly scope?: string;
 }
 
 export interface JsonRuleDescriptor {
@@ -121,6 +129,12 @@ function renderJsonDocument(
     message: f.message,
     source: f.source,
     status: f.status,
+    // Issue #35: scope tag. Omit `default` to preserve the
+    // single-project JSON shape (no field = no scope = implicit
+    // single-project repo).
+    ...(f.scope !== undefined && f.scope !== 'default'
+      ? { scope: f.scope }
+      : {}),
   }));
 
   // The CLI uses `RunResult.scannedFiles` from the runner output; the

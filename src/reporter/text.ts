@@ -123,7 +123,14 @@ function formatFinding(
     ? c.bgCyan(c.black(' review '))
     : severityTag(finding.severity, c);
 
-  const headerText = `${c.bold(displayPath)}:${finding.match.startLine + 1} ${tag} ${c.cyan(finding.ruleId)}`;
+  // Issue #35: scope tag for monorepo findings. The implicit `default`
+  // scope (single-project runs) is omitted to keep the single-project
+  // output shape byte-identical to v0.3 — only named scopes get tagged.
+  const scopeTag = finding.scope !== undefined && finding.scope !== 'default'
+    ? `${c.magenta(c.bold(`[${finding.scope}]`))} `
+    : '';
+
+  const headerText = `${scopeTag}${c.bold(displayPath)}:${finding.match.startLine + 1} ${tag} ${c.cyan(finding.ruleId)}`;
   const lines: string[] = columns === undefined
     ? [headerText]
     : wrapAnsi(headerText, Math.max(20, columns)).split('\n');

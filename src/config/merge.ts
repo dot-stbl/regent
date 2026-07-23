@@ -86,6 +86,10 @@ export function mergeConfigs(layers: readonly RegentConfig[]): RegentConfig {
   // can't override it).
   let globalRulesPath: string | undefined;
 
+  // scopes — last-wins by id. Higher-precedence layers override
+  // lower-precedence scopes for the same name; new names accumulate.
+  // Issue #35.
+  const scopesMap = new Map<string, RegentConfig['scopes'][string]>();
   for (const layer of layers) {
     // rules.detect — last-wins by id
     for (const r of layer.rules.detect) {
@@ -127,6 +131,11 @@ export function mergeConfigs(layers: readonly RegentConfig[]): RegentConfig {
     // rules.accept — union; origin = 'repo' for project-level entries
     for (const entry of layer.rules.accept) {
       acceptList.push({ ...entry, origin: 'repo' });
+    }
+
+    // scopes — last-wins by id (issue #35)
+    for (const [name, spec] of Object.entries(layer.scopes ?? {})) {
+      scopesMap.set(name, spec);
     }
 
     // excludePaths — concat + dedup + expand groups
@@ -228,6 +237,7 @@ export function mergeConfigs(layers: readonly RegentConfig[]): RegentConfig {
     log,
     output,
     runner,
+    scopes: Object.fromEntries(scopesMap),
     ...(globalRulesPath !== undefined ? { globalRulesPath } : {}),
   };
 }

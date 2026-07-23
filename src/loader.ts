@@ -10,6 +10,16 @@
 //   6. project override:      `config.rules.override{}` (severity/message)
 //   7. project accept:        `config.rules.accept[]` (tri-state review)
 //
+// **Scope support (issue #35):** when `options.scope` is provided,
+// the loader anchors config discovery at `<scope.root>` instead of
+// `cwd`. cosmiconfig walks up from that anchor and stops at the
+// repo root (`process.cwd()`), so the scope's own config wins over
+// the repo's and a scope without its own config transparently
+// inherits the repo's. `resolvedConfig.scopes` always carries the
+// full root-config map; `scope` on this loader is just the
+// "currently selected" record. The scope's name threads through to
+// `Finding.scope` via `RunnerScope.scopeName`.
+//
 // v0.2 ships zero built-in rules. Every rule is authored by the user
 // or agent. Curated examples live under examples/lang/foo.lint.ts and
 // can be pulled in via `extends: 'path-to-example'` or
@@ -32,6 +42,7 @@ import {
   isNpmPackageSpec,
   resolveExtendsNpmPackage,
 } from './loader/plugin-extends.js';
+import type { ResolvedScope } from './config/scopes.js';
 import type { RuleFixSpec } from './types.js';
 import { validateFixSpec } from './types.js';
 import type {
@@ -52,6 +63,15 @@ export interface LoaderOptions {
 
   /** Commander-resolved CLI args (highest-precedence overlay). */
   readonly args?: CliArgs;
+
+  /**
+   * Selected scope (issue #35). When provided, config discovery is
+   * anchored at `<scope.root>` — the scope's `.regentrc.*` wins over
+   * the repo's, and the scope's `tools/audit/rules/` is what the
+   * loader reads. Omit for single-project / implicit-`default`
+   * runs.
+   */
+  readonly scope?: ResolvedScope;
 }
 
 export interface LoaderRuleSet {
@@ -87,9 +107,16 @@ export type LoadedAcceptEntry = AcceptEntry & {
 /**
  * Public entry point. Resolves the layered config via `loadConfig()`,
  * then discovers + applies rule files and inline rules.
+ *
+ * Issue #35: when `options.scope` is set, the config + rule discovery
+ * is anchored at `scope.root` so the scope's own `.regentrc.*` and
+ * `tools/audit/rules/` win over the repo's. The repo config's
+ * `scopes` map is preserved verbatim on `resolvedConfig.scopes` so
+ * callers can still introspect the full scope topology.
  */
 export async function loadRules(options: LoaderOptions): Promise<LoaderRuleSet> {
-  const cwd = options.repoRoot ?? process.cwd();
+  const repoRoot = options.repoRoot ?? process.cwd();
+  const cwd = options.scope?.root ?? repoRoot;
 
   const { config, sources } = await loadConfig({ cwd, args: options.args });
 

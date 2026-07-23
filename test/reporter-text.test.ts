@@ -158,4 +158,29 @@ describe('renderText', () => {
     const withUndef = renderText([finding], { cwd: '/abs/path', useColor: false, columns: undefined });
     expect(noOpt).toBe(withUndef);
   });
+
+  // Issue #35: scope-tagged findings get a `[scope]` prefix in text
+  // output. The implicit `default` scope is suppressed to keep the
+  // single-project output byte-identical to v0.3.
+  it('prefixes the finding header with [scope] when finding.scope is set', () => {
+    const out = renderText(
+      [baseFinding({ scope: 'frontend' })],
+      { cwd: '/abs/path', useColor: false },
+    );
+    expect(out).toMatch(/\[frontend\]/);
+  });
+
+  it('omits the [scope] prefix when finding has no scope (single-project)', () => {
+    const out = renderText([baseFinding()], { cwd: '/abs/path', useColor: false });
+    expect(out).not.toMatch(/\[default\]/);
+    expect(out).not.toMatch(/\[[a-z][a-z0-9-]*\]/);
+  });
+
+  it('omits the [scope] prefix when finding.scope is the implicit "default"', () => {
+    const out = renderText(
+      [baseFinding({ scope: 'default' })],
+      { cwd: '/abs/path', useColor: false },
+    );
+    expect(out).not.toMatch(/\[default\]/);
+  });
 });
