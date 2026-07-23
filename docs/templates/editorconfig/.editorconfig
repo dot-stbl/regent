@@ -1,0 +1,186 @@
+# editorconfig — strict, auto-fix-friendly, regent-aligned
+# Companion: docs/templates/editorconfig/README.md (rationale + adoption path)
+# Don't apply to console.x (independent project). Apply to anlytra, plexor, tessera.
+
+root = true
+
+# ============================================================================
+# Base formatting — applies to every text file
+# ============================================================================
+
+[*]
+charset = utf-8
+end_of_line = lf
+indent_style = space
+indent_size = 4
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.{json,yml,yaml,xml,csproj,props,targets}]
+indent_size = 2
+
+[*.md]
+trim_trailing_whitespace = false
+
+# ============================================================================
+# C# — auto-fix-friendly rules first, then build-time errors
+# ============================================================================
+
+[*.cs]
+
+# ----- Indentation -----
+csharp_indent_case_contents = true
+csharp_indent_switch_labels = true
+
+# ----- Using directives -----
+dotnet_sort_system_directives_first = true
+dotnet_separate_import_directive_groups = false
+csharp_using_directive_placement = outside_namespace:error
+
+# ----- var vs explicit type (CODE-SHAPE §1) -----
+csharp_style_var_for_built_in_types = true:error
+csharp_style_var_when_type_is_apparent = true:error
+csharp_style_var_elsewhere = true:error
+dotnet_diagnostic.IDE0007.severity = error  # use var
+dotnet_diagnostic.IDE0008.severity = none    # use explicit type — inverse of 0007, do not enforce
+
+# ----- File-scoped namespace (CODE-SHAPE §8) -----
+csharp_style_namespace_declarations = file_scoped:error
+dotnet_diagnostic.IDE0161.severity = error
+
+# ----- Braces always (CODE-SHAPE §5) -----
+csharp_prefer_braces = true:error
+dotnet_diagnostic.IDE0011.severity = error
+
+# ----- Pattern matching & minimal code (CODE-SHAPE §5) -----
+csharp_style_pattern_matching_over_is_with_cast_check = true:error
+csharp_style_pattern_matching_over_as_with_null_check = true:error
+csharp_style_prefer_switch_expression = true:warning
+csharp_style_prefer_pattern_matching = true:warning
+csharp_style_prefer_not_pattern = true:warning
+dotnet_diagnostic.IDE0078.severity = warning
+dotnet_diagnostic.IDE0083.severity = warning
+dotnet_diagnostic.IDE0046.severity = error  # conditional-expression
+
+# ----- Inline variable declarations -----
+csharp_style_inlined_variable_declaration = true:error
+
+# ----- this. qualification NOT required -----
+dotnet_style_qualification_for_field = false:warning
+dotnet_style_qualification_for_property = false:warning
+dotnet_style_qualification_for_method = false:warning
+dotnet_style_qualification_for_event = false:warning
+
+# ----- Predefined types (int vs Int32) -----
+dotnet_style_predefined_type_for_locals_parameters_members = true:warning
+dotnet_style_predefined_type_for_member_access = true:warning
+
+# ----- Expression-bodied methods BANNED (CODE-SHAPE §5) -----
+# Block body required. IDE0022 at error.
+csharp_style_expression_bodied_methods = false:error
+csharp_style_expression_bodied_constructors = false:silent
+csharp_style_expression_bodied_operators = when_on_single_line:silent
+csharp_style_expression_bodied_properties = true:silent
+csharp_style_expression_bodied_indexers = true:silent
+csharp_style_expression_bodied_accessors = true:silent
+csharp_style_expression_bodied_lambdas = true:silent
+dotnet_diagnostic.IDE0022.severity = error
+
+# ----- this. qualifier on private members NOT required -----
+dotnet_style_qualification_for_field = false:warning
+
+# ----- Accessibility modifiers (NAMING §2) -----
+dotnet_style_require_accessibility_modifiers = always:error
+dotnet_diagnostic.IDE0040.severity = error
+
+# ============================================================================
+# Async / await / cancellation (NAMING §1 + ASYNC-AND-TASKS)
+# ============================================================================
+
+# Async suffix mandatory (NAMING §1)
+dotnet_diagnostic.VSTHRD200.severity = error
+
+# No .Result / .Wait() / .GetAwaiter().GetResult() in async
+dotnet_diagnostic.VSTHRD002.severity = error
+dotnet_diagnostic.VSTHRD103.severity = error
+dotnet_diagnostic.VSTHRD110.severity = warning  # observe awaited result
+
+# No async void
+dotnet_diagnostic.VSTHRD104.severity = error
+
+# ConfigureAwait BANNED (async + library code)
+# (MA0004 removed 2026-07-19; CA2007 covers the .NET 8+ way)
+dotnet_diagnostic.CA2007.severity = none
+# (Regent ast rule planned: csharp.async.no-configureawait.lint.ts)
+
+# ============================================================================
+# Public API surface (NAMING §3 + ANTI-PATTERNS §3)
+# ============================================================================
+
+# No List<T> in public API
+dotnet_diagnostic.CA1002.severity = warning
+
+# No public mutable fields (NAMING §3)
+dotnet_diagnostic.CA1051.severity = warning
+
+# Sealed concrete classes (NAMING §2) — strict
+dotnet_diagnostic.CA1852.severity = error
+
+# Identifier should not contain type name
+dotnet_diagnostic.CA1720.severity = warning
+
+# No keyword-name identifiers
+dotnet_diagnostic.CA1716.severity = none
+
+# No localization
+dotnet_diagnostic.CA1303.severity = none
+
+# No CA2000 (dispose) — false positives with DI
+dotnet_diagnostic.CA2000.severity = none
+
+# No uninstantiated internal class (DI)
+dotnet_diagnostic.CA1812.severity = none
+
+# ============================================================================
+# Logging (CA22xx)
+# ============================================================================
+
+# Logging template should be a static expression
+dotnet_diagnostic.CA2254.severity = error
+
+# Logging placeholders should be PascalCase
+dotnet_diagnostic.CA1727.severity = warning
+
+# LoggerMessage source-gen NOT required
+dotnet_diagnostic.CA1848.severity = none
+
+# No "wrap LogX in IsEnabled" — false positive noise
+dotnet_diagnostic.CA1873.severity = none
+
+# ============================================================================
+# Style simplifications (Roslynator RCS*) — auto-fixable
+# ============================================================================
+
+dotnet_diagnostic.RCS1124.severity = warning  # inline local var
+dotnet_diagnostic.RCS1173.severity = warning  # simplify if-else to ternary
+dotnet_diagnostic.RCS1206.severity = warning  # conditional access vs if
+dotnet_diagnostic.RCS1218.severity = warning  # simplify code branching
+dotnet_diagnostic.RCS1238.severity = warning  # avoid nested ternary
+
+# ============================================================================
+# Forward CancellationToken (CA2016 / MA0040)
+# ============================================================================
+
+dotnet_diagnostic.CA2016.severity = warning  # BCL variant
+# (MA0040 not configured — Meziantou analyzer removed 2026-07-19)
+
+# ============================================================================
+# MA* / Meziantou — REMOVED 2026-07-19
+# ============================================================================
+# All MA* settings are intentionally absent. If you copy this file into
+# a project that still has them, delete them. The Meziantou analyzer
+# package is no longer installed.
+
+# ============================================================================
+# End of C# rules
+# ============================================================================
