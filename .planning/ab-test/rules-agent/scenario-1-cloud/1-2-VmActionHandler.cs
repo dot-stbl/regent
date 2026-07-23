@@ -171,9 +171,8 @@ public sealed class VmActionHandler(
     /// <param name="cancellationToken">Forwarded to the repository.</param>
     public async Task<VmState> HandleAsync(VmActionCommand command, CancellationToken cancellationToken = default)
     {
-        var vm = await repository.GetByIdAsync(command.VmId, cancellationToken) is { } found
-            ? found
-            : throw new VmNotFoundException(command.VmId);
+        var vm = await repository.GetByIdAsync(command.VmId, cancellationToken)
+            ?? throw new VmNotFoundException(command.VmId);
 
         if (!vm.TryTransit(command.Action, clock.GetUtcNow(), out _))
         {
