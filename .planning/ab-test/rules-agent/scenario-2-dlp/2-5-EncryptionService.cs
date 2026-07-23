@@ -25,7 +25,7 @@ public interface IKeyProvider
     /// <param name="cancellationToken">Forwarded to the underlying I/O.</param>
     /// <exception cref="KeyNotFoundException">Thrown when <paramref name="keyId" /> is unknown.</exception>
     /// <exception cref="KeyRetiredException">Thrown when <paramref name="keyId" /> is retired.</exception>
-    Task<byte[]> GetKeyAsync(KeyId keyId, CancellationToken cancellationToken = default);
+    public Task<byte[]> GetKeyAsync(KeyId keyId, CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -59,15 +59,56 @@ public sealed class KeyRetiredException : Exception
 }
 
 /// <summary>
+///     Configures the AES-GCM parameters used by <see cref="EncryptionService" />.
+///     Bound from <c>appsettings.json</c> section <c>Dlp:Encryption</c>.
+/// </summary>
+public sealed class EncryptionOptions
+{
+    public const string SectionName = "Dlp:Encryption";
+
+    /// <summary>Nonce size in bytes (default 12, per NIST SP 800-38D §8.2.1).</summary>
+    public int NonceSize { get; init; } = 12;
+
+    /// <summary>Authentication tag size in bytes (default 16, per NIST SP 800-38D §5.2.1.2).</summary>
+    public int TagSize { get; init; } = 16;
+
+    /// <summary>Required key size in bytes (default 32 for AES-256).</summary>
+    public int KeySize { get; init; } = 32;
+
+    /// <summary>
+    ///     Builds a per-call <see cref="EncryptionLayout" /> for a payload of
+    ///     <paramref name="payloadLength" /> bytes. Use this when a caller
+    ///     needs a custom nonce/tag combination.
+    /// </summary>
+    /// <param name="payloadLength">Plaintext length in bytes.</param>
+    public EncryptionLayout CreateLayout(int payloadLength) =>
+        new(NonceSize: NonceSize, TagSize: TagSize, PayloadLength: payloadLength);
+}
+
+/// <summary>
+///     Per-call AES-GCM layout. <see cref="TotalLength" /> is the on-wire size
+///     of an <c>EncryptAsync</c> output blob (nonce + ciphertext + tag).
+/// </summary>
+/// <param name="NonceSize">Bytes reserved for the nonce.</param>
+/// <param name="TagSize">Bytes reserved for the authentication tag.</param>
+/// <param name="PayloadLength">Bytes of ciphertext (== plaintext length).</param>
+public readonly record struct EncryptionLayout(int NonceSize, int TagSize, int PayloadLength)
+{
+    /// <summary>Total on-wire size of an <c>EncryptAsync</c> output.</summary>
+    public int TotalLength => NonceSize + PayloadLength + TagSize;
+}
+
+/// <summary>
 ///     Encrypts and decrypts payloads with AES-GCM using a key fetched from
 ///     the provider. Output format: <c>nonce ‖ ciphertext ‖ tag</c>.
 /// </summary>
-/// <param name="keyProvider">Source of 256-bit symmetric keys.</param>
-public sealed class EncryptionService(IKeyProvider keyProvider)
+/// <param name="keyProvider">Source of symmetric keys.</param>
+/// <param name="options">AES-GCM parameters (nonce / tag / key sizes).</param>
+public sealed class EncryptionService(
+    IKeyProvider keyProvider,
+    Microsoft.Extensions.Options.IOptions<EncryptionOptions> options)
 {
-    private const int NonceSize = 12;
-    private const int TagSize = 16;
-    private const int KeySize = 32;
+    private readonly EncryptionOptions config = options.Value;
 
     /// <summary>
     ///     Encrypts <paramref name="plaintext" /> with the key identified by
@@ -84,19 +125,19 @@ public sealed class EncryptionService(IKeyProvider keyProvider)
     public async Task<byte[]> EncryptAsync(byte[] plaintext, KeyId keyId, CancellationToken cancellationToken = default)
     {
         var key = await keyProvider.GetKeyAsync(keyId, cancellationToken);
-        EnsureKeyLength(key);
+        KeyValidator.EnsureKeyLength(key, config.KeySize);
 
-        var nonce = RandomNumberGenerator.GetBytes(NonceSize);
+        var nonce = RandomNumberGenerator.GetBytes(config.NonceSize);
         var ciphertext = new byte[plaintext.Length];
-        var tag = new byte[TagSize];
+        var tag = new byte[config.TagSize];
 
-        using var gcm = new AesGcm(key, TagSize);
+        using var gcm = new AesGcm(key, config.TagSize);
         gcm.Encrypt(nonce, plaintext, ciphertext, tag);
 
-        var output = new byte[NonceSize + ciphertext.Length + TagSize];
-        nonce.CopyTo(output.AsSpan(0, NonceSize));
-        ciphertext.CopyTo(output.AsSpan(NonceSize, ciphertext.Length));
-        tag.CopyTo(output.AsSpan(NonceSize + ciphertext.Length, TagSize));
+        var output = new byte[config.NonceSize + ciphertext.Length + config.TagSize];
+        nonce.CopyTo(output.AsSpan(0, config.NonceSize));
+        ciphertext.CopyTo(output.AsSpan(config.NonceSize, ciphertext.Length));
+        tag.CopyTo(output.AsSpan(config.NonceSize + ciphertext.Length, config.TagSize));
         return output;
     }
 
@@ -114,7 +155,7 @@ public sealed class EncryptionService(IKeyProvider keyProvider)
     /// <exception cref="CryptographicException">Thrown when the authentication tag does not verify.</exception>
     public async Task<byte[]> DecryptAsync(byte[] payload, KeyId keyId, CancellationToken cancellationToken = default)
     {
-        if (payload.Length < NonceSize + TagSize)
+        if (payload.Length < config.NonceSize + config.TagSize)
         {
             throw new ArgumentException(
                 "Payload is too short to be a valid AES-GCM blob.",
@@ -122,27 +163,43 @@ public sealed class EncryptionService(IKeyProvider keyProvider)
         }
 
         var key = await keyProvider.GetKeyAsync(keyId, cancellationToken);
-        EnsureKeyLength(key);
+        KeyValidator.EnsureKeyLength(key, config.KeySize);
 
-        var nonce = new byte[NonceSize];
-        var tag = new byte[TagSize];
-        var ciphertext = new byte[payload.Length - NonceSize - TagSize];
+        var nonce = new byte[config.NonceSize];
+        var tag = new byte[config.TagSize];
+        var ciphertext = new byte[payload.Length - config.NonceSize - config.TagSize];
 
-        payload.AsSpan(0, NonceSize).CopyTo(nonce);
-        payload.AsSpan(NonceSize, ciphertext.Length).CopyTo(ciphertext);
-        payload.AsSpan(NonceSize + ciphertext.Length, TagSize).CopyTo(tag);
+        payload.AsSpan(0, config.NonceSize).CopyTo(nonce);
+        payload.AsSpan(config.NonceSize, ciphertext.Length).CopyTo(ciphertext);
+        payload.AsSpan(config.NonceSize + ciphertext.Length, config.TagSize).CopyTo(tag);
 
         var plaintext = new byte[ciphertext.Length];
-        using var gcm = new AesGcm(key, TagSize);
+        using var gcm = new AesGcm(key, config.TagSize);
         gcm.Decrypt(nonce, ciphertext, tag, plaintext);
         return plaintext;
     }
+}
 
-    private static void EnsureKeyLength(byte[] key)
+/// <summary>
+///     Validates key material passed to <see cref="EncryptionService" />.
+///     File-static so production classes don't carry a private
+///     validation method (§1a, <c>code-shape.md</c>).
+/// </summary>
+internal static class KeyValidator
+{
+    /// <summary>
+    ///     Throws if <paramref name="key" /> is not exactly
+    ///     <paramref name="expectedSize" /> bytes long.
+    /// </summary>
+    /// <param name="key">Key bytes to validate.</param>
+    /// <param name="expectedSize">Required length in bytes (e.g. 32 for AES-256).</param>
+    /// <exception cref="InvalidOperationException">Thrown when the key is the wrong size.</exception>
+    public static void EnsureKeyLength(byte[] key, int expectedSize)
     {
-        if (key.Length != KeySize)
+        if (key.Length != expectedSize)
         {
-            throw new InvalidOperationException($"AES-256 requires a {KeySize}-byte key, got {key.Length}.");
+            throw new InvalidOperationException(
+                $"AES requires a {expectedSize}-byte key, got {key.Length}.");
         }
     }
 }

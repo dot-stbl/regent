@@ -7,7 +7,7 @@ namespace Saas.Tenants;
 public interface ITenantScoped
 {
     /// <summary>Tenant that owns the entity.</summary>
-    TenantId TenantId { get; }
+    public TenantId TenantId { get; }
 }
 
 /// <summary>Thrown when a query or write crosses a tenant boundary.</summary>
@@ -52,7 +52,7 @@ public sealed class NoTenantResolvedException : Exception
 public interface ITenantContext
 {
     /// <summary>Current tenant id, or <see langword="null" /> when no tenant is resolved.</summary>
-    TenantId? TenantId { get; }
+    public TenantId? TenantId { get; }
 }
 
 /// <summary>

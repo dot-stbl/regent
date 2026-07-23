@@ -28,7 +28,7 @@ public interface ITeamMembershipSource
     /// <summary>Returns the teams the user belongs to.</summary>
     /// <param name="userId">Target user.</param>
     /// <param name="cancellationToken">Forwarded to the underlying query.</param>
-    Task<IReadOnlyCollection<TeamId>> ListTeamsAsync(UserId userId, CancellationToken cancellationToken = default);
+    public Task<IReadOnlyCollection<TeamId>> ListTeamsAsync(UserId userId, CancellationToken cancellationToken = default);
 }
 
 /// <summary>Source of org-to-tenant mappings.</summary>
@@ -37,7 +37,7 @@ public interface IOrgHierarchySource
     /// <summary>Returns the tenant that owns the org.</summary>
     /// <param name="orgId">Target org.</param>
     /// <param name="cancellationToken">Forwarded to the underlying query.</param>
-    Task<TenantId?> GetOrgTenantAsync(OrgId orgId, CancellationToken cancellationToken = default);
+    public Task<TenantId?> GetOrgTenantAsync(OrgId orgId, CancellationToken cancellationToken = default);
 }
 
 /// <summary>Source of permissions attached to a scope (team / org / tenant).</summary>
@@ -46,7 +46,7 @@ public interface IPermissionSource
     /// <summary>Returns the permissions granted at the given scope.</summary>
     /// <param name="scope">Target scope.</param>
     /// <param name="cancellationToken">Forwarded to the underlying query.</param>
-    Task<IReadOnlyCollection<Permission>> GetPermissionsAsync(Scope scope, CancellationToken cancellationToken = default);
+    public Task<IReadOnlyCollection<Permission>> GetPermissionsAsync(Scope scope, CancellationToken cancellationToken = default);
 }
 
 /// <summary>

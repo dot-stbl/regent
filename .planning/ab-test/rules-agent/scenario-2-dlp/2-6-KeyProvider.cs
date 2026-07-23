@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Microsoft.Extensions.Options;
 
 namespace Dlp.Keys;
 
@@ -24,38 +25,53 @@ public sealed record ManagedKey(
 public sealed record KeyStoreSchema(IReadOnlyCollection<ManagedKey> Keys);
 
 /// <summary>
-///     Reads keys from <c>~/.config/dlp/keys.json</c> with simple in-memory
-///     rotation support. Refreshes on a <see cref="TimeProvider" />-driven timer.
+///     Configures the <see cref="KeyProvider" />. Bound from
+///     <c>appsettings.json</c> section <c>Dlp:KeyProvider</c>.
 /// </summary>
-public sealed class KeyProvider : IKeyProvider, IDisposable
+public sealed class KeyProviderOptions
 {
-    private const string FileName = "keys.json";
+    public const string SectionName = "Dlp:KeyProvider";
 
-    private readonly TimeProvider clock;
-    private readonly string storePath;
-    private readonly TimeSpan refreshInterval;
+    private const string DefaultFileName = "keys.json";
+
+    /// <summary>
+    ///     On-disk path of the key store. Defaults to
+    ///     <c>~/.config/dlp/keys.json</c> on Unix and
+    ///     <c>%APPDATA%\dlp\keys.json</c> on Windows.
+    /// </summary>
+    public string StorePath { get; init; } = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+        ".config",
+        "dlp",
+        DefaultFileName);
+
+    /// <summary>How often to re-read the on-disk file.</summary>
+    public TimeSpan RefreshInterval { get; init; } = TimeSpan.FromMinutes(1);
+}
+
+/// <summary>
+///     Reads keys from the configured on-disk path with simple in-memory
+///     rotation support. Initial load happens at construction; periodic
+///     re-load happens when <see cref="Reload" /> is called (typically from
+///     a hosted scheduler).
+/// </summary>
+/// <param name="clock">Wall-clock source.</param>
+/// <param name="options">Provider configuration.</param>
+public sealed class KeyProvider(
+    TimeProvider clock,
+    IOptions<KeyProviderOptions> options) : IKeyProvider, IDisposable
+{
+    private readonly KeyProviderOptions config = options.Value;
     private readonly ReaderWriterLockSlim gate = new();
-    private readonly IDisposable? refreshTimer;
-
-    private Dictionary<string, ManagedKey> keysById = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, ManagedKey> keysById = new(StringComparer.Ordinal);
     private DateTimeOffset lastLoadedAt = DateTimeOffset.MinValue;
     private bool disposed;
 
-    /// <summary>
-    ///     Constructs the provider, loading keys immediately and on a refresh timer.
-    /// </summary>
-    /// <param name="clock">Wall-clock source.</param>
-    /// <param name="overridePath">Override for the on-disk key store path (test-only).</param>
-    /// <param name="refreshInterval">How often to re-read the on-disk file.</param>
-    public KeyProvider(TimeProvider clock, string? overridePath = null, TimeSpan? refreshInterval = null)
-    {
-        this.clock = clock;
-        this.refreshInterval = refreshInterval ?? TimeSpan.FromMinutes(1);
-        this.storePath = overridePath ?? DefaultStorePath();
+    /// <summary>Resolves the on-disk path of the key store.</summary>
+    public string StorePath => config.StorePath;
 
-        Reload();
-        refreshTimer = clock.CreateTimer(_ => Reload(), null, this.refreshInterval, this.refreshInterval);
-    }
+    /// <summary>Wall-clock instant of the last successful reload.</summary>
+    public DateTimeOffset LastLoadedAt => lastLoadedAt;
 
     /// <inheritdoc />
     public Task<byte[]> GetKeyAsync(KeyId keyId, CancellationToken cancellationToken = default)
@@ -83,25 +99,20 @@ public sealed class KeyProvider : IKeyProvider, IDisposable
         }
     }
 
-    /// <summary>Returns the resolved on-disk path of the key store.</summary>
-    public string StorePath => storePath;
-
-    private static string DefaultStorePath()
+    /// <summary>
+    ///     Re-reads the on-disk file. Safe to call from any thread; uses
+    ///     a write lock to swap the in-memory dictionary atomically.
+    /// </summary>
+    public void Reload()
     {
-        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        return Path.Combine(home, ".config", "dlp", FileName);
-    }
-
-    private void Reload()
-    {
-        if (!File.Exists(storePath))
+        if (!File.Exists(config.StorePath))
         {
             return;
         }
 
         try
         {
-            using var stream = File.OpenRead(storePath);
+            using var stream = File.OpenRead(config.StorePath);
             var schema = JsonSerializer.Deserialize<KeyStoreSchema>(stream, KeyProviderJsonOptions.Instance);
 
             if (schema is null)
@@ -112,7 +123,11 @@ public sealed class KeyProvider : IKeyProvider, IDisposable
             gate.EnterWriteLock();
             try
             {
-                keysById = schema.Keys.ToDictionary(k => k.Id, StringComparer.Ordinal);
+                keysById.Clear();
+                foreach (var key in schema.Keys)
+                {
+                    keysById[key.Id] = key;
+                }
                 lastLoadedAt = clock.GetUtcNow();
             }
             finally
@@ -136,7 +151,6 @@ public sealed class KeyProvider : IKeyProvider, IDisposable
         }
 
         disposed = true;
-        refreshTimer?.Dispose();
         gate.Dispose();
         GC.SuppressFinalize(this);
     }

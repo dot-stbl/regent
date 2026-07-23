@@ -129,14 +129,14 @@ public interface IVmRepository
     /// <summary>Retrieves a VM by its identifier, or <see langword="null" /> if absent.</summary>
     /// <param name="vmId">Target VM identifier.</param>
     /// <param name="cancellationToken">Forwarded to the underlying query.</param>
-    Task<Vm?> GetByIdAsync(VmId vmId, CancellationToken cancellationToken = default);
+    public Task<Vm?> GetByIdAsync(VmId vmId, CancellationToken cancellationToken = default);
 
     /// <summary>Lists VMs owned by the tenant, paginated.</summary>
     /// <param name="tenantId">Tenant scope.</param>
     /// <param name="pageNumber">1-based page number.</param>
     /// <param name="pageSize">Page size (capped by repository).</param>
     /// <param name="cancellationToken">Forwarded to the underlying query.</param>
-    Task<IReadOnlyCollection<Vm>> ListByTenantAsync(
+    public Task<IReadOnlyCollection<Vm>> ListByTenantAsync(
         TenantId tenantId,
         int pageNumber,
         int pageSize,
@@ -145,7 +145,7 @@ public interface IVmRepository
     /// <summary>Persists the supplied VM.</summary>
     /// <param name="vm">Aggregate to persist.</param>
     /// <param name="cancellationToken">Forwarded to the underlying command.</param>
-    Task SaveAsync(Vm vm, CancellationToken cancellationToken = default);
+    public Task SaveAsync(Vm vm, CancellationToken cancellationToken = default);
 }
 
 /// <summary>
