@@ -90,7 +90,7 @@ public abstract class TenantScopedRepository<T>(
             return null;
         }
 
-        EnsureSameTenant(entity);
+        TenantGuard.EnsureSameTenant(entity, CurrentTenantId);
         return entity;
     }
 
@@ -120,10 +120,23 @@ public abstract class TenantScopedRepository<T>(
         dbContext.Set<T>().Remove(entity);
         await dbContext.SaveChangesAsync(cancellationToken);
     }
+}
 
-    private void EnsureSameTenant(T entity)
+/// <summary>
+///     Tenant-scope validation helpers — file-static so production classes
+///     don't carry a private method (per <c>code-shape.md</c> §1a).
+/// </summary>
+file static class TenantGuard
+{
+    /// <summary>
+    ///     Throws <see cref="CrossTenantAccessException" /> when the
+    ///     <paramref name="entity" /> belongs to a different tenant than the
+    ///     <paramref name="current" /> request context.
+    /// </summary>
+    /// <param name="entity">Entity being read or written.</param>
+    /// <param name="current">Tenant the request is operating in.</param>
+    public static void EnsureSameTenant(ITenantScoped entity, TenantId current)
     {
-        var current = CurrentTenantId;
         if (entity.TenantId != current)
         {
             throw new CrossTenantAccessException(current, entity.TenantId);

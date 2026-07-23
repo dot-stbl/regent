@@ -32,8 +32,6 @@ public sealed class KeyProviderOptions
 {
     public const string SectionName = "Dlp:KeyProvider";
 
-    private const string DefaultFileName = "keys.json";
-
     /// <summary>
     ///     On-disk path of the key store. Defaults to
     ///     <c>~/.config/dlp/keys.json</c> on Unix and
@@ -43,7 +41,7 @@ public sealed class KeyProviderOptions
         Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
         ".config",
         "dlp",
-        DefaultFileName);
+        "keys.json");
 
     /// <summary>How often to re-read the on-disk file.</summary>
     public TimeSpan RefreshInterval { get; init; } = TimeSpan.FromMinutes(1);
@@ -61,14 +59,16 @@ public sealed class KeyProvider(
     TimeProvider clock,
     IOptions<KeyProviderOptions> options) : IKeyProvider, IDisposable
 {
-    private readonly KeyProviderOptions config = options.Value;
+    /// <summary>Resolved options (reads through the live <see cref="IOptions{TOptions}" />).</summary>
+    private KeyProviderOptions Config => options.Value;
+
     private readonly ReaderWriterLockSlim gate = new();
     private readonly Dictionary<string, ManagedKey> keysById = new(StringComparer.Ordinal);
     private DateTimeOffset lastLoadedAt = DateTimeOffset.MinValue;
     private bool disposed;
 
     /// <summary>Resolves the on-disk path of the key store.</summary>
-    public string StorePath => config.StorePath;
+    public string StorePath => Config.StorePath;
 
     /// <summary>Wall-clock instant of the last successful reload.</summary>
     public DateTimeOffset LastLoadedAt => lastLoadedAt;
@@ -105,14 +105,14 @@ public sealed class KeyProvider(
     /// </summary>
     public void Reload()
     {
-        if (!File.Exists(config.StorePath))
+        if (!File.Exists(Config.StorePath))
         {
             return;
         }
 
         try
         {
-            using var stream = File.OpenRead(config.StorePath);
+            using var stream = File.OpenRead(Config.StorePath);
             var schema = JsonSerializer.Deserialize<KeyStoreSchema>(stream, KeyProviderJsonOptions.Instance);
 
             if (schema is null)

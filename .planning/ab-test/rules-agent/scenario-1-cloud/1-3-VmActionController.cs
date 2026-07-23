@@ -63,10 +63,11 @@ public static class VmActionEndpoint
 
         try
         {
-            var state = await handler.HandleAsync(command, cancellationToken);
             return TypedResults.Accepted(
                 $"/api/v1/vms/{vmId}",
-                new AcceptedVmActionResponse(vmId, state));
+                new AcceptedVmActionResponse(
+                    vmId,
+                    await handler.HandleAsync(command, cancellationToken)));
         }
         catch (VmNotFoundException ex)
         {

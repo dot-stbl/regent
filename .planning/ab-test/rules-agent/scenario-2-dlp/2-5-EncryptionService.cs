@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using Dlp.Keys;
+using Microsoft.Extensions.Options;
 
 namespace Dlp.Keys;
 
@@ -106,9 +107,10 @@ public readonly record struct EncryptionLayout(int NonceSize, int TagSize, int P
 /// <param name="options">AES-GCM parameters (nonce / tag / key sizes).</param>
 public sealed class EncryptionService(
     IKeyProvider keyProvider,
-    Microsoft.Extensions.Options.IOptions<EncryptionOptions> options)
+    IOptions<EncryptionOptions> options)
 {
-    private readonly EncryptionOptions config = options.Value;
+    /// <summary>Resolved options (reads through the live <see cref="IOptions{TOptions}" />).</summary>
+    private EncryptionOptions Config => options.Value;
 
     /// <summary>
     ///     Encrypts <paramref name="plaintext" /> with the key identified by
@@ -125,19 +127,19 @@ public sealed class EncryptionService(
     public async Task<byte[]> EncryptAsync(byte[] plaintext, KeyId keyId, CancellationToken cancellationToken = default)
     {
         var key = await keyProvider.GetKeyAsync(keyId, cancellationToken);
-        KeyValidator.EnsureKeyLength(key, config.KeySize);
+        KeyValidator.EnsureKeyLength(key, Config.KeySize);
 
-        var nonce = RandomNumberGenerator.GetBytes(config.NonceSize);
+        var nonce = RandomNumberGenerator.GetBytes(Config.NonceSize);
         var ciphertext = new byte[plaintext.Length];
-        var tag = new byte[config.TagSize];
+        var tag = new byte[Config.TagSize];
 
-        using var gcm = new AesGcm(key, config.TagSize);
+        using var gcm = new AesGcm(key, Config.TagSize);
         gcm.Encrypt(nonce, plaintext, ciphertext, tag);
 
-        var output = new byte[config.NonceSize + ciphertext.Length + config.TagSize];
-        nonce.CopyTo(output.AsSpan(0, config.NonceSize));
-        ciphertext.CopyTo(output.AsSpan(config.NonceSize, ciphertext.Length));
-        tag.CopyTo(output.AsSpan(config.NonceSize + ciphertext.Length, config.TagSize));
+        var output = new byte[Config.NonceSize + ciphertext.Length + Config.TagSize];
+        nonce.CopyTo(output.AsSpan(0, Config.NonceSize));
+        ciphertext.CopyTo(output.AsSpan(Config.NonceSize, ciphertext.Length));
+        tag.CopyTo(output.AsSpan(Config.NonceSize + ciphertext.Length, Config.TagSize));
         return output;
     }
 
@@ -155,7 +157,7 @@ public sealed class EncryptionService(
     /// <exception cref="CryptographicException">Thrown when the authentication tag does not verify.</exception>
     public async Task<byte[]> DecryptAsync(byte[] payload, KeyId keyId, CancellationToken cancellationToken = default)
     {
-        if (payload.Length < config.NonceSize + config.TagSize)
+        if (payload.Length < Config.NonceSize + Config.TagSize)
         {
             throw new ArgumentException(
                 "Payload is too short to be a valid AES-GCM blob.",
@@ -163,18 +165,18 @@ public sealed class EncryptionService(
         }
 
         var key = await keyProvider.GetKeyAsync(keyId, cancellationToken);
-        KeyValidator.EnsureKeyLength(key, config.KeySize);
+        KeyValidator.EnsureKeyLength(key, Config.KeySize);
 
-        var nonce = new byte[config.NonceSize];
-        var tag = new byte[config.TagSize];
-        var ciphertext = new byte[payload.Length - config.NonceSize - config.TagSize];
+        var nonce = new byte[Config.NonceSize];
+        var tag = new byte[Config.TagSize];
+        var ciphertext = new byte[payload.Length - Config.NonceSize - Config.TagSize];
 
-        payload.AsSpan(0, config.NonceSize).CopyTo(nonce);
-        payload.AsSpan(config.NonceSize, ciphertext.Length).CopyTo(ciphertext);
-        payload.AsSpan(config.NonceSize + ciphertext.Length, config.TagSize).CopyTo(tag);
+        payload.AsSpan(0, Config.NonceSize).CopyTo(nonce);
+        payload.AsSpan(Config.NonceSize, ciphertext.Length).CopyTo(ciphertext);
+        payload.AsSpan(Config.NonceSize + ciphertext.Length, Config.TagSize).CopyTo(tag);
 
         var plaintext = new byte[ciphertext.Length];
-        using var gcm = new AesGcm(key, config.TagSize);
+        using var gcm = new AesGcm(key, Config.TagSize);
         gcm.Decrypt(nonce, ciphertext, tag, plaintext);
         return plaintext;
     }

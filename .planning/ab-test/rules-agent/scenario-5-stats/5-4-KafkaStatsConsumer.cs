@@ -99,11 +99,12 @@ public sealed class KafkaStatsConsumer(
 
                 if (result is null)
                 {
-                    await MaybeFlushAsync(batch, lastFlush, stoppingToken);
+                    await KafkaBatch.MaybeFlushAsync(
+                        batch, lastFlush, options.Value.FlushInterval, store, clock, logger, stoppingToken);
                     continue;
                 }
 
-                if (TryParse(result.Message.Value) is { } point)
+                if (KafkaBatch.TryParse(result.Message.Value) is { } point)
                 {
                     batch.Add(point);
                 }
@@ -119,12 +120,23 @@ public sealed class KafkaStatsConsumer(
         }
         finally
         {
-            await FlushAsync(batch, CancellationToken.None);
+            await KafkaBatch.FlushAsync(batch, store, logger, CancellationToken.None);
             consumer.Close();
         }
     }
+}
 
-    private static Point? TryParse(string? raw)
+/// <summary>
+///     Batch-flush helpers for the Kafka stats pipeline. File-static so
+///     production classes don't carry private methods (per
+///     <c>code-shape.md</c> §1a).
+/// </summary>
+file static class KafkaBatch
+{
+    /// <summary>Tries to parse a single Kafka message value as a <see cref="Point" />.</summary>
+    /// <param name="raw">Raw message value (UTF-8 JSON).</param>
+    /// <returns>The parsed point, or <see langword="null" /> on parse failure.</returns>
+    public static Point? TryParse(string? raw)
     {
         if (string.IsNullOrWhiteSpace(raw))
         {
@@ -147,7 +159,19 @@ public sealed class KafkaStatsConsumer(
         }
     }
 
-    private async Task FlushAsync(List<Point> batch, CancellationToken cancellationToken)
+    /// <summary>
+    ///     Flushes a batch to the store. Swallows I/O errors so a transient
+    ///     store failure doesn't crash the consumer.
+    /// </summary>
+    /// <param name="batch">Batch to persist; cleared on success or failure.</param>
+    /// <param name="store">Target storage.</param>
+    /// <param name="logger">Structured logger.</param>
+    /// <param name="cancellationToken">Forwarded to the store.</param>
+    public static async Task FlushAsync(
+        List<Point> batch,
+        TimeSeriesStore store,
+        ILogger logger,
+        CancellationToken cancellationToken)
     {
         if (batch.Count == 0)
         {
@@ -169,16 +193,31 @@ public sealed class KafkaStatsConsumer(
         }
     }
 
-    private async Task MaybeFlushAsync(List<Point> batch, DateTimeOffset lastFlush, CancellationToken cancellationToken)
+    /// <summary>Flushes the batch only if the flush interval has elapsed.</summary>
+    /// <param name="batch">Batch to persist; cleared on flush.</param>
+    /// <param name="lastFlush">Wall-clock instant of the last flush.</param>
+    /// <param name="flushInterval">Configured flush interval.</param>
+    /// <param name="store">Target storage.</param>
+    /// <param name="clock">Wall-clock source.</param>
+    /// <param name="logger">Structured logger.</param>
+    /// <param name="cancellationToken">Forwarded to the store.</param>
+    public static async Task MaybeFlushAsync(
+        List<Point> batch,
+        DateTimeOffset lastFlush,
+        TimeSpan flushInterval,
+        TimeSeriesStore store,
+        TimeProvider clock,
+        ILogger logger,
+        CancellationToken cancellationToken)
     {
         if (batch.Count == 0)
         {
             return;
         }
 
-        if (clock.GetUtcNow() - lastFlush >= options.Value.FlushInterval)
+        if (clock.GetUtcNow() - lastFlush >= flushInterval)
         {
-            await FlushAsync(batch, cancellationToken);
+            await FlushAsync(batch, store, logger, cancellationToken);
         }
     }
 }

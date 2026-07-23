@@ -93,10 +93,9 @@ public sealed class PermissionResolver(
         var queue = new Queue<Scope>();
         var merged = new Dictionary<(ResourceType Resource, string Action), Permission>();
 
-        var teams = await teamMemberships.ListTeamsAsync(userId, cancellationToken);
-        foreach (var team in teams)
+        foreach (var team in await teamMemberships.ListTeamsAsync(userId, cancellationToken))
         {
-            EnqueueIfNew(new Scope.TeamScope(team), seen, queue);
+            Bfs.Enqueue(new Scope.TeamScope(team), seen, queue);
         }
 
         while (queue.Count > 0)
@@ -104,16 +103,13 @@ public sealed class PermissionResolver(
             cancellationToken.ThrowIfCancellationRequested();
             var current = queue.Dequeue();
 
-            if (current is Scope.OrgScope orgScope)
+            if (current is Scope.OrgScope orgScope
+                && await orgHierarchy.GetOrgTenantAsync(orgScope.Id, cancellationToken) is { } tenantId)
             {
-                if (await orgHierarchy.GetOrgTenantAsync(orgScope.Id, cancellationToken) is { } tenantId)
-                {
-                    EnqueueIfNew(new Scope.TenantScope(tenantId), seen, queue);
-                }
+                Bfs.Enqueue(new Scope.TenantScope(tenantId), seen, queue);
             }
 
-            var perms = await permissionSource.GetPermissionsAsync(current, cancellationToken);
-            foreach (var perm in perms)
+            foreach (var perm in await permissionSource.GetPermissionsAsync(current, cancellationToken))
             {
                 merged[(perm.Resource, perm.Action)] = perm;
             }
@@ -121,8 +117,19 @@ public sealed class PermissionResolver(
 
         return merged.Values;
     }
+}
 
-    private static void EnqueueIfNew(Scope scope, HashSet<Scope> seen, Queue<Scope> queue)
+/// <summary>
+///     BFS state holder helpers — file-static so production classes
+///     don't carry a private method (per <c>code-shape.md</c> §1a).
+/// </summary>
+file static class Bfs
+{
+    /// <summary>
+    ///     Enqueues <paramref name="scope" /> only if it has not been seen
+    ///     before. Adds to <paramref name="seen" /> on first encounter.
+    /// </summary>
+    public static void Enqueue(Scope scope, HashSet<Scope> seen, Queue<Scope> queue)
     {
         if (seen.Add(scope))
         {
