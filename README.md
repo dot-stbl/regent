@@ -362,6 +362,11 @@ all custom log payloads; pino's redact covers the rest.
 | `test/bundle-conformance.test.ts` | conformance harness for the canonical `~/.agents/rules/csharp/regent-rules/` bundle |
 | `tools/audit/rules/*.lint.ts` | **team-authored** rules — `regent` dogfooding its own conventions (separate from `examples/`, enforced via `bun run regent:check`) |
 
+> **Positioning.** Regent is a bridge + skill publisher for agents, not a
+> standalone linter — native tooling (Roslyn, eslint, prettier, ruff,
+> clippy, gofmt, …) takes precedence; regent rules are for house-rules no
+> analyzer covers. See [ADR-0001](docs/adr/0001-regent-positioning-bridge-not-linter.md).
+
 ## Why `regent`?
 
 - **Zero language bias.** No bundled C# / TS / Python rules. The

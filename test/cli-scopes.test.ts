@@ -27,7 +27,6 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
-  readFileSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
@@ -107,7 +106,7 @@ const SCOPED_CONFIG = (scopes: Record<string, { root: string }>): string => JSON
 
 const MARKER = 'TODO MARKER';
 
-let workspaces: string[] = [];
+const workspaces: string[] = [];
 
 beforeAll(() => {
   ensureBuilt();
