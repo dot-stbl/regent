@@ -515,7 +515,12 @@ async function runCheck(options: CheckOptions): Promise<number> {
     output += renderSarif(findings, result.rules, { cwd });
   } else {
     output = renderText(findings, { cwd, useColor, hideReview, columns });
-    output += '\n' + renderSummary(findings, result.rules, useColor);
+    output += '\n' + renderSummary(
+      findings,
+      result.rules,
+      useColor,
+      loadedRules.rules.length + loadedRules.astRules.length + loadedRules.transformRules.length,
+    );
   }
 
   if (options.out) {
@@ -593,7 +598,12 @@ async function runCheckWatch(args: {
       );
     } else {
       output = renderText(findings, { cwd, useColor, hideReview, columns });
-      output += '\n' + renderSummary(findings, result.rules, useColor);
+      output += '\n' + renderSummary(
+        findings,
+        result.rules,
+        useColor,
+        loadedRules.rules.length + loadedRules.astRules.length + loadedRules.transformRules.length,
+      );
     }
     process.stdout.write('\u001b[2J\u001b[H'); // clear screen
     process.stdout.write(output);
@@ -698,7 +708,7 @@ async function runCheckStream(
   if (shown === 0) {
     process.stdout.write(`${useColor ? pc.green('✓') : '✓'} no findings\n`);
   }
-  process.stdout.write(`\n${renderSummary(all, rules, useColor)}`);
+  process.stdout.write(`\n${renderSummary(all, rules, useColor, rules.length + astRules.length)}`);
   return computeExitCode(all, exitOn);
 }
 
@@ -794,7 +804,17 @@ async function runList(_options: ListOptions): Promise<void> {
       ? ` ${pc.cyan('[review]')}`
       : '';
     const origin = formatOrigin(r.origin);
-    console.log(`${r.spec.id}\t${sev}${reviewFlag}\t${origin}`);
+    console.log(`${r.spec.id}\t${sev}${reviewFlag}\tdetect\t${origin}`);
+  }
+  for (const r of loaded.astRules) {
+    const sev = severityColored(r.spec.severity, useColor);
+    const origin = formatOrigin(r.origin);
+    console.log(`${r.spec.id}\t${sev}\tast\t${origin}`);
+  }
+  for (const r of loaded.transformRules) {
+    const sev = severityColored(r.spec.severity, useColor);
+    const origin = formatOrigin(r.origin);
+    console.log(`${r.spec.id}\t${sev}\ttransform\t${origin}`);
   }
 }
 
