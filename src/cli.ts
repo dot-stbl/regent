@@ -48,6 +48,7 @@ import type { AcceptEntry, CompiledRule, Finding, RunResult, RunnerScope, Severi
 import type { CompiledAstRule } from './kinds/ast.js';
 import { renderBanner } from './cli/banner.js';
 import { registerFixCommand } from './cli/fix.js';
+import { checkForUpdateWithTimeout, formatUpdateWarning, runUpdate } from './cli/update.js';
 import { registerDescribeCommand } from './cli/describe.js';
 import { loadLlmText } from './llm.js';
 import { routeLlm } from './llm-router.js';
@@ -232,6 +233,16 @@ registerFixCommand(program);
 registerDescribeCommand(program);
 
 program
+  .command('update')
+  .description('Check for a newer regent release and print the upgrade command')
+  .option('--check', 'only print version comparison, do not change state')
+  .action(async (_options) => {
+    const useColor = shouldUseColor({ color: true } as unknown as CheckOptions);
+    const exitCode = await runUpdate(useColor);
+    await flushAndExit(exitCode);
+  });
+
+program
   .command('cache')
   .description('Inspect or manage the .regent/cache.json cache')
   .argument('<action>', 'stats | clear')
@@ -372,6 +383,20 @@ async function runCheck(options: CheckOptions): Promise<number> {
   const useColor = shouldUseColor(options);
   const hideReview = options.review === false;
   const columns = resolveColumns(options);
+
+  // Non-blocking update hint — fires the registry lookup in parallel
+  // with the rule load, prints to stderr (one dim line) if a newer
+  // release is available. Cached for 24h on disk; respects
+  // STBL_REGENT_NO_UPDATE_CHECK=1 to opt out (CI / scripted runs).
+  // Bounded wait so the warning actually flushes before the run
+  // finishes (fire-and-forget tends to lose the race against
+  // stdout's final write).
+  if (!options.watch) {
+    const updateInfo = await checkForUpdateWithTimeout(1500);
+    if (updateInfo?.upgradeAvailable === true) {
+      process.stderr.write(`regent: ${formatUpdateWarning(updateInfo, useColor)}\n`);
+    }
+  }
 
   let loadedRules;
   try {
@@ -796,6 +821,11 @@ async function runReview(options: ReviewOptions): Promise<number> {
 async function runList(_options: ListOptions): Promise<void> {
   const cwd = process.cwd();
   const useColor = shouldUseColor({ color: true } as unknown as CheckOptions);
+
+  const updateInfo = await checkForUpdateWithTimeout(1500);
+  if (updateInfo?.upgradeAvailable === true) {
+    process.stderr.write(`regent: ${formatUpdateWarning(updateInfo, useColor)}\n`);
+  }
 
   const loaded = await loadRules({ repoRoot: cwd });
   for (const r of loaded.rules) {

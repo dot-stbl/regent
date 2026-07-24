@@ -19,3 +19,4 @@ tools/audit/config.local.ts
 
 # regent benchmark baseline (written by `regent benchmark`; persisted via CI cache)
 .regent/
+.regent-update-cache.json
