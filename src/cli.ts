@@ -499,6 +499,7 @@ async function runCheck(options: CheckOptions): Promise<number> {
   const allRules: CompiledRule[] = [];
   const allWarnings: string[] = [];
   let allScannedFiles = 0;
+  let totalLoadedRules = 0;
 
   for (const scope of scopesToRun) {
     const loadedRules = await loadRulesForScope(scope, cwd, cliArgsFromOptions(options));
@@ -512,6 +513,8 @@ async function runCheck(options: CheckOptions): Promise<number> {
     // Apply CLI --include-rules / --exclude-rules filters per scope.
     const filteredRules = filterRules(loadedRules.rules, options);
     const filteredAstRules = filterRules(loadedRules.astRules, options);
+
+    totalLoadedRules += loadedRules.rules.length + loadedRules.astRules.length + loadedRules.transformRules.length;
 
     const runWarnings = collectRunWarnings(loadedRules, filteredAstRules, scope.root);
     for (const w of runWarnings) {
@@ -566,10 +569,15 @@ async function runCheck(options: CheckOptions): Promise<number> {
   } else if (format === 'both') {
     output = renderText(displayFindings, { cwd, useColor, hideReview, columns });
     output += '\n--- SARIF ---\n';
-    output += renderSarif(displayFindings, allRules, { cwd });
+    output = renderSarif(displayFindings, allRules, { cwd });
   } else {
     output = renderText(displayFindings, { cwd, useColor, hideReview, columns });
-    output += '\n' + renderSummary(displayFindings, allRules, useColor);
+    output += '\n' + renderSummary(
+      displayFindings,
+      allRules,
+      useColor,
+      totalLoadedRules,
+    );
   }
 
   if (options.out) {
@@ -794,7 +802,12 @@ async function runCheckWatch(args: {
       );
     } else {
       output = renderText(findings, { cwd, useColor, hideReview, columns });
-      output += '\n' + renderSummary(findings, result.rules, useColor);
+      output += '\n' + renderSummary(
+        findings,
+        result.rules,
+        useColor,
+        loadedRules.rules.length + loadedRules.astRules.length + loadedRules.transformRules.length,
+      );
     }
     process.stdout.write('\u001b[2J\u001b[H'); // clear screen
     process.stdout.write(output);
@@ -899,7 +912,7 @@ async function runCheckStream(
   if (shown === 0) {
     process.stdout.write(`${useColor ? pc.green('✓') : '✓'} no findings\n`);
   }
-  process.stdout.write(`\n${renderSummary(all, rules, useColor)}`);
+  process.stdout.write(`\n${renderSummary(all, rules, useColor, rules.length + astRules.length)}`);
   return computeExitCode(all, exitOn);
 }
 
@@ -1019,7 +1032,19 @@ async function runList(options: ListOptions): Promise<void> {
       : '';
     const origin = formatOrigin(r.origin);
     const scopeTag = scope.name === 'default' ? '' : ` ${pc.dim(`[${scope.name}]`)}`;
-    console.log(`${r.spec.id}${scopeTag}\t${sev}${reviewFlag}\t${origin}`);
+    console.log(`${r.spec.id}${scopeTag}\t${sev}${reviewFlag}\tdetect\t${origin}`);
+  }
+  for (const r of loaded.astRules) {
+    const sev = severityColored(r.spec.severity, useColor);
+    const origin = formatOrigin(r.origin);
+    const scopeTag = scope.name === 'default' ? '' : ` ${pc.dim(`[${scope.name}]`)}`;
+    console.log(`${r.spec.id}${scopeTag}\t${sev}\tast\t${origin}`);
+  }
+  for (const r of loaded.transformRules) {
+    const sev = severityColored(r.spec.severity, useColor);
+    const origin = formatOrigin(r.origin);
+    const scopeTag = scope.name === 'default' ? '' : ` ${pc.dim(`[${scope.name}]`)}`;
+    console.log(`${r.spec.id}${scopeTag}\t${sev}\ttransform\t${origin}`);
   }
 }
 

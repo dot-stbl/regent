@@ -282,6 +282,7 @@ export function renderSummary(
   findings: readonly Finding[],
   rules: readonly { spec: { id: string; severity: string } }[],
   useColor: boolean,
+  totalRules?: number,
 ): string {
   const c = useColor ? pc : createDulledColorPalette();
   const counts = { error: 0, warning: 0, suggestion: 0, pending: 0, accepted: 0, violation: 0 };
@@ -310,7 +311,7 @@ export function renderSummary(
   if (counts.accepted > 0) {
     parts.push(`${c.dim(`${counts.accepted} accepted`)}`);
   }
-  return `${rules.length} rules · ${parts.join(' · ')}\n`;
+  return `${totalRules ?? rules.length} rules · ${parts.join(' · ')}\n`;
 }
 
 export interface TextReporterOptions {
