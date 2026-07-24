@@ -63,7 +63,8 @@ import {
 import { createLogger, flushAndExit, type Logger } from './logging/index.js';
 import { isLogLevel, type LogLevel } from './logging/levels.js';
 
-const VERSION = '0.3.0';
+import pkg from '../package.json' with { type: 'json' };
+const VERSION: string = pkg.version;
 
 const program = new Command();
 

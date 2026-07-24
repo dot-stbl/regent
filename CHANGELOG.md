@@ -4,6 +4,23 @@ All notable changes to `@dot-stbl/regent` are recorded here. Dates are
 UTC and approximate. Project tags follow the [commit-format](../../)
 project rule (`[.stbl](feat/<area>): <subject>`).
 
+## v0.5.1 — VERSION constant sync
+
+Released 2026-07-24.
+
+### Fixed
+
+- `src/cli.ts` `VERSION` and `src/core/cache.ts` `RUNNER_VERSION`
+  were hardcoded to `'0.3.0'` and never bumped through v0.4.0 or
+  v0.5.0, so the published CLI reported `regent --version` as
+  `0.3.0` while `package.json` advertised the new version. Both now
+  read `pkg.version` via `import pkg from '.../package.json' with {
+  type: 'json' }` so the next release cycle stays in sync without a
+  manual edit.
+
+No other changes; v0.5.1 is a re-publish of the v0.5.0 build with the
+constant fix.
+
 ## v0.5.0 — config plugins + cross-language helpers
 
 Released 2026-07-24.
