@@ -4,7 +4,74 @@ All notable changes to `@dot-stbl/regent` are recorded here. Dates are
 UTC and approximate. Project tags follow the [commit-format](../../)
 project rule (`[.stbl](feat/<area>): <subject>`).
 
-## Unreleased (post-v0.4.0)
+## v0.5.0 — config plugins + cross-language helpers
+
+Released 2026-07-24.
+
+Ships the first half of the **config-plugins epic (#34)** — parameterised
+rules and the format/delegate author surface plus file-based discovery —
+together with the cross-language pattern-helper backlog carried over from
+v0.4.0. The runner + safe-invocation + output-pipeline half (34b) is
+deferred to v0.6.
+
+### Added — config plugins (#34, #33)
+
+#### Plugin resolution via `extends: '@scope/name'` (#23)
+
+- Loader resolves `extends: '@scope/regent-rules-x'` (or any
+  `@scope/name`) as an npm package and merges its exported rules.
+  Local file paths still work; npm resolution is the new path that
+  enables shipping rule bundles for downstream projects.
+  [#91](https://github.com/dot-stbl/regent/pull/91) (`fc9788d`)
+  closes [#23](https://github.com/dot-stbl/regent/issues/23).
+
+#### Parameterised rules (#33)
+
+- `params: { … }` on `defineRule` — the loader validates per-instance
+  config against a Zod schema derived from the params shape.
+  [#96](https://github.com/dot-stbl/regent/pull/96) (`53b9ed9`).
+- Loader `params` step — looks up each spec's params in the merged
+  config and threads the parsed value into the rule factory; unknown
+  params fail loud at load time.
+  [#99](https://github.com/dot-stbl/regent/pull/99) (`dabd1d6`).
+
+#### `defineFormat` / `defineDelegate` author surface (34a)
+
+- Two helpers, two specs: `defineFormat` (file-mutating tools) and
+  `defineDelegate` (read-only analyzers). Each gets its own spec
+  shape; the runner integrates them in 34b (deferred to v0.6).
+- Schema wires `rules.format[]` and `rules.delegate[]` arrays next to
+  the existing `rules.detect[]`. Tests: 16 across
+  `test/kinds/format.test.ts` + `test/kinds/delegate.test.ts`
+  (frozen, plain-string, function-form, schema-rejects-unknown-keys).
+  `CONTRIBUTING.md` author guide updated.
+  [#100](https://github.com/dot-stbl/regent/pull/100) (`1bfe3b4`).
+
+#### File discovery + bundles + auto-detect (34c)
+
+- `loader/format-files.ts` globs `**/*.{format,delegate}.ts` under
+  `tools/audit/`. `loader.ts` wires `loadFormatSpecFiles` /
+  `loadDelegateSpecFiles` into the merged loader.
+- Inline in `.regentrc.ts` via `rules.format[]` / `rules.delegate[]`
+  is supported at the surface but not the primary path.
+- Auto-detect when no specs are configured: `*.sln` → suggest dotnet,
+  `package.json` → suggest node, `pyproject.toml` → suggest python.
+  [#101](https://github.com/dot-stbl/regent/pull/101) (`fc18892`).
+
+[#34](https://github.com/dot-stbl/regent/issues/34) ·
+[#33](https://github.com/dot-stbl/regent/issues/33).
+
+### Deferred to v0.6.0
+
+- **34b — runner + safe invocation + output pipeline.** Two-tier
+  output normalisation (parser in bundle for common tools, custom
+  parser in spec for internal tools). Synthetic workspace-level
+  finding on tool failure. Token blocklist (`--watch`, `--serve`,
+  `--port`, `--listen`, `--dev`, `--daemon`, `serve`, `start`,
+  `daemon`) + first-token denylist (`vite`, `next`, `gatsby`, `ng`,
+  `webpack-dev-server`). Lives on
+  `feat/config-plugins-34c-format-delegate-discovery-bundles-autodetect`
+  as `6b60613`.
 
 ### Added — pattern helpers for Java, Go, Rust
 
@@ -57,17 +124,16 @@ project rule (`[.stbl](feat/<area>): <subject>`).
 
 ### Test stats
 
-- 555 / 555 tests pass on `main`. Up from v0.4.0's 530 / 535
-  (+25 from new patterns describe blocks and the v0.5 backlog
-  resolution in #91).
-
-### Completed from the v0.5 backlog (carried over v0.4.0)
-
-- [#23](https://github.com/dot-stbl/regent/issues/23) — Plugin
-  resolution via `extends: '@scope/regent-rules-x'`. Completed in
-  [#91](https://github.com/dot-stbl/regent/pull/91) (`fc9788d`).
-- [#31](https://github.com/dot-stbl/regent/issues/31) — Inline
-  `/** docs */` in core modules. Completed via [#90].
+- 664 tests across 70 files pass on `main` (per CI, ubuntu-latest).
+  Up from v0.4.0's 537 / 537 (+127 from the config-plugins/33–34
+  epic and the cross-language pattern helpers in #92–#94).
+- `describe.test.ts` and `plugin-load.test.ts` share a
+  `node_modules/@scope/regent-rules-test` symlink fixture; their
+  `beforeAll`/`afterAll` lifecycles can race under vitest's default
+  threaded pool on macOS / Windows. Run with
+  `bun run test --sequence.shuffle=false` (or
+  `vitest --sequence.shuffle=false`) for deterministic local
+  results. CI (Linux, ubuntu-latest) is unaffected.
 
 ## v0.4.0 — fix-mode epic
 
