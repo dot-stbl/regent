@@ -4,6 +4,82 @@ All notable changes to `@dot-stbl/regent` are recorded here. Dates are
 UTC and approximate. Project tags follow the [commit-format](../../)
 project rule (`[.stbl](feat/<area>): <subject>`).
 
+## v0.6.0 — 2026-07-25
+
+### Added — subcommands
+
+- `regent explain <ruleId|file:line:col>` — explain a rule or a
+  finding with the matched code window + remediation guidance.
+  [#124](https://github.com/dot-stbl/regent/pull/124)
+- `regent diff [baseline]` — show new / resolved findings vs a
+  baseline (cache mode by default; explicit JSON path supported;
+  git-ref baseline deferred to
+  [#120](https://github.com/dot-stbl/regent/issues/120)).
+  [#122](https://github.com/dot-stbl/regent/pull/122)
+- `regent doctor` — 9-point health check for a regent setup
+  (node version, config parse, user-global path, project rules,
+  module type, regent freshness, cache, network). Green / yellow /
+  red status with one-line remediation hints.
+  [#123](https://github.com/dot-stbl/regent/pull/123)
+- `regent stats` — by-severity / by-rule / by-file / trend
+  summaries, with 5-run trend read from the on-disk cache.
+  [#135](https://github.com/dot-stbl/regent/pull/135)
+- `regent check --format html` — self-contained, single-file HTML
+  report (light + dark via `prefers-color-scheme`, no external
+  assets, no JS). [#130](https://github.com/dot-stbl/regent/pull/130)
+- `regent check --annotate-pr <num>` — post findings as PR review
+  comments via `gh api`, with dedupe via hidden HTML marker.
+  [#127](https://github.com/dot-stbl/regent/pull/127)
+- `regent init --pre-commit` — generate husky / lefthook / raw
+  pre-commit hook running `regent check --diff` on commit, with
+  PM auto-detection.
+  [#128](https://github.com/dot-stbl/regent/pull/128)
+
+### Added — shipped example
+
+- `examples/csharp/csharp.ef.magic-property.lint.ts` — the first
+  shipped AST example, targeting `builder.Property(<string>)` in
+  EF Core fluent mappings. Includes bad / good fixtures and a
+  walkthrough. [#114](https://github.com/dot-stbl/regent/pull/114)
+  (Closes [#108](https://github.com/dot-stbl/regent/issues/108).)
+
+### Added — design
+
+- MCP server design + minimal `list_rules` prototype. Six-tool
+  surface proposed (read-only v1); write tools (accept / reject /
+  fix) deferred to a follow-up with its own auth model.
+  [#132](https://github.com/dot-stbl/regent/pull/132)
+
+### Fixed — loaders
+
+- `loadJsLike` now rewrites Regent-resolvable bare imports to
+  absolute file URLs and evaluates via a data URL. Closes
+  [#112](https://github.com/dot-stbl/regent/issues/112) — the
+  `bun test` flake where `ERR_MODULE_NOT_FOUND` for `zod` was
+  silently swallowed when loading a hand-built `.regentrc.js`
+  from a tempdir. [#121](https://github.com/dot-stbl/regent/pull/121)
+
+### Added — diagnostics / polish
+
+- Module-type startup check: detects missing `"type": "module"`
+  in a project's `package.json` when `.lint.ts` files exist, and
+  prints a one-line fix hint to silence the
+  `MODULE_TYPELESS_PACKAGE_JSON` warning.
+  [#116](https://github.com/dot-stbl/regent/pull/116)
+- Regression pin: rule id is the author-declared id, not the
+  filename. Comment + 5-test guard in
+  `test/loader/file-id-from-declared-id.test.ts`. The bug was
+  reported in the wave-1 audit but turned out to be a misread;
+  this PR is documentation + a guard against the reported shape
+  ever appearing. [#117](https://github.com/dot-stbl/regent/pull/117)
+- Update-cache freshness: TTL is 1h for 48h after a release, then
+  24h. [#134](https://github.com/dot-stbl/regent/pull/134)
+- Startup-progress line: `regent: loaded N rules in X.XXs` is
+  emitted to stderr (dim) when loading rules takes ≥ 500 ms.
+  `--quiet` suppresses. [#133](https://github.com/dot-stbl/regent/pull/133)
+
+## Unreleased (post-v0.4.0)
+
 ## Unreleased (post-v0.4.0)
 
 ### Added — pattern helpers for Java, Go, Rust
