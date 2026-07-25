@@ -72,6 +72,20 @@ function ensureBuilt(): void {
   }
 }
 
+function commitWorkspace(cwd: string): void {
+  const commands = [
+    ['init', '--quiet'],
+    ['add', '.'],
+    ['-c', 'user.name=Regent Tests', '-c', 'user.email=regent@example.invalid', 'commit', '--quiet', '--no-gpg-sign', '-m', 'baseline'],
+  ];
+  for (const args of commands) {
+    const result = spawnSync('git', args, { cwd, encoding: 'utf8' });
+    if (result.status !== 0) {
+      throw new Error(result.stderr || `git ${args.join(' ')} failed`);
+    }
+  }
+}
+
 // Configs are written as JSON because the test workspace has no
 // `node_modules` (no `@dot-stbl/regent` to import). cosmiconfig's
 // `.json` loader skips the dynamic-import path entirely.
@@ -89,7 +103,9 @@ const INLINE_RULE = (ruleId: string, globs: readonly string[]): string => JSON.s
   },
 });
 
-const SCOPED_CONFIG = (scopes: Record<string, { root: string }>): string => JSON.stringify({
+const SCOPED_CONFIG = (
+  scopes: Record<string, { root: string; changedOnly?: boolean }>,
+): string => JSON.stringify({
   scopes,
   rules: {
     detect: [
@@ -155,12 +171,14 @@ describe('regent check: scope resolution (issue #35)', () => {
     }
   });
 
-  it('multi-scope: `regent check` runs every scope, finds tagged in JSON', () => {
+  it('multi-scope: `--all` runs every changed-only scope', () => {
     const repo = pickRepo();
     writeFileSync(
       join(repo, '.regentrc.json'),
-      SCOPED_CONFIG({ frontend: { root: 'apps/web' }, backend: { root: 'apps/backend' } }),
+      SCOPED_CONFIG({ frontend: { root: 'apps/web', changedOnly: true }, backend: { root: 'apps/backend', changedOnly: true } }),
     );
+    commitWorkspace(repo);
+    writeFileSync(join(repo, 'apps', 'web', 'todo.txt'), `${MARKER}\nchanged\n`);
 
     const r = runCli(['check', '--all', '--format', 'json', '--include-rules', 'cli.scopes.*'], repo);
     expect(r.status).toBe(1);
@@ -171,6 +189,57 @@ describe('regent check: scope resolution (issue #35)', () => {
     const scopes = new Set(doc.findings.map((f) => f.scope));
     expect(scopes.has('frontend')).toBe(true);
     expect(scopes.has('backend')).toBe(true);
+  });
+
+  it('routes opted-in scopes by changed path without filtering default-off scopes', () => {
+    const repo = pickRepo();
+    writeFileSync(
+      join(repo, '.regentrc.json'),
+      SCOPED_CONFIG({
+        frontend: { root: 'apps/web', changedOnly: true }, backend: { root: 'apps/backend' }, 'backend-opt': { root: 'apps/backend', changedOnly: true },
+      }),
+    );
+    commitWorkspace(repo);
+    writeFileSync(join(repo, 'apps', 'web', 'todo.txt'), `${MARKER}\nchanged\n`);
+
+    const r = runCli(['check', '--include-rules', 'cli.scopes.*'], repo);
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain('2 rules');
+    expect(r.stderr).toContain("scope 'backend-opt' has no changed files — skipped");
+    expect(r.stderr).not.toContain("scope 'backend' has no changed files — skipped");
+  });
+
+  it('falls back to every scope when no changed files are detected', () => {
+    const repo = pickRepo();
+    writeFileSync(
+      join(repo, '.regentrc.json'),
+      SCOPED_CONFIG({ frontend: { root: 'apps/web', changedOnly: true }, backend: { root: 'apps/backend', changedOnly: true } }),
+    );
+    commitWorkspace(repo);
+
+    const r = runCli(['check', '--include-rules', 'cli.scopes.*'], repo);
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain('2 rules');
+    expect(r.stderr).toContain('no changed files detected — running every scope');
+    expect(r.stderr).not.toContain('has no changed files — skipped');
+  });
+
+  it('explicit `-s` bypasses changed-only scope routing', () => {
+    const repo = pickRepo();
+    writeFileSync(
+      join(repo, '.regentrc.json'),
+      SCOPED_CONFIG({ frontend: { root: 'apps/web', changedOnly: true }, backend: { root: 'apps/backend', changedOnly: true } }),
+    );
+    commitWorkspace(repo);
+    writeFileSync(join(repo, 'apps', 'web', 'todo.txt'), `${MARKER}\nchanged\n`);
+
+    const r = runCli(
+      ['check', '-s', 'frontend,backend', '--include-rules', 'cli.scopes.*'],
+      repo,
+    );
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain('2 rules');
+    expect(r.stderr).not.toContain('has no changed files — skipped');
   });
 
   it('`-s frontend` runs only the frontend scope', () => {

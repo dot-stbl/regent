@@ -6,6 +6,10 @@ project rule (`[.stbl](feat/<area>): <subject>`).
 
 ## Unreleased (post-v0.4.0)
 
+### Changed — scope routing #106
+
+- Scopes opt into PR-change routing with `changedOnly: true`; `--all` or explicit `-s` selection forces them.
+
 ### Added — AST-engine follow-up #57 (sub-items 2 + 4)
 
 - **`kind: 'regex'` deprecation warning (#57 sub-item 2).** Loading a

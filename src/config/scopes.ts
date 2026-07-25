@@ -28,6 +28,7 @@ export interface ResolvedScope {
   readonly root: string;
   /** Repo-relative path (original, for display in `regent scopes`). */
   readonly relativeRoot: string;
+  readonly changedOnly: boolean;
 }
 
 /**
@@ -93,7 +94,12 @@ export function resolveScopes(
     const root = isAbsolute(spec.root)
       ? spec.root
       : resolve(cwd, spec.root);
-    out.push({ name, root, relativeRoot: spec.root });
+    out.push({
+      name,
+      root,
+      relativeRoot: spec.root,
+      changedOnly: spec.changedOnly === true,
+    });
   }
   return out;
 }
@@ -122,6 +128,7 @@ export function defaultScopes(
         name: 'default',
         root: cwd,
         relativeRoot: '.',
+        changedOnly: false,
       },
     ];
   }

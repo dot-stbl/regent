@@ -226,7 +226,8 @@ const AcceptEntrySchema = z
   .strict();
 
 /**
- * A single scope entry (issue #35). MVP shape: `{ root: string }`.
+ * A single scope entry (issues #35 and #106). Shape:
+ * `{ root: string; changedOnly?: boolean }`.
  * Follow-ups will widen this to `extends` / per-scope `rules` /
  * per-scope `excludePaths` — see `gh issue list --repo
  * dot-stbl/regent --milestone v0.4.0` for the backlog.
@@ -239,6 +240,7 @@ const AcceptEntrySchema = z
 const ScopeSpecSchema = z
   .object({
     root: z.string().min(1),
+    changedOnly: z.boolean().optional(),
   })
   .strict();
 

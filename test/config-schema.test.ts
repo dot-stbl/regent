@@ -189,7 +189,7 @@ describe('RegentConfigSchema', () => {
   it('accepts a scopes map with valid kebab-case names', () => {
     const result = safeParseConfig({
       scopes: {
-        frontend: { root: 'apps/web' },
+        frontend: { root: 'apps/web', changedOnly: true },
         'my-backend': { root: 'src' },
       },
       rules: { detect: [], fix: [] },
@@ -197,6 +197,7 @@ describe('RegentConfigSchema', () => {
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(Object.keys(result.value.scopes).sort()).toEqual(['frontend', 'my-backend']);
+      expect(result.value.scopes.frontend?.changedOnly).toBe(true);
     }
   });
 

@@ -289,7 +289,7 @@ async function collectFiles(scope: RunnerScope): Promise<string[]> {
   });
 }
 
-async function collectChangedFiles(cwd: string, baseRef: string): Promise<string[]> {
+export async function collectChangedFiles(cwd: string, baseRef: string): Promise<string[]> {
   try {
     const git = simpleGit({ baseDir: cwd });
     const diff = await git.diff([`${baseRef}..HEAD`, '--name-only', '--no-renames']);

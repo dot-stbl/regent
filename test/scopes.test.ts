@@ -74,12 +74,13 @@ describe('resolveScopes', () => {
   it('resolves a single declared scope to its absolute root', () => {
     const config = {
       ...base,
-      scopes: { frontend: { root: 'apps/web' } },
+      scopes: { frontend: { root: 'apps/web', changedOnly: true } },
     };
     const [scope] = resolveScopes(config, ['frontend'], REPO);
     expect(scope?.name).toBe('frontend');
     expect(scope?.root).toBe(abs('apps/web'));
     expect(scope?.relativeRoot).toBe('apps/web');
+    expect(scope?.changedOnly).toBe(true);
   });
 
   it('preserves the order of requested names', () => {
@@ -123,13 +124,14 @@ describe('defaultScopes', () => {
     expect(scope?.name).toBe('default');
     expect(scope?.root).toBe(REPO);
     expect(scope?.relativeRoot).toBe('.');
+    expect(scope?.changedOnly).toBe(false);
   });
 
   it('returns every declared scope in declaration order when scopes exist', () => {
     const config = {
       ...defaultConfig(),
       scopes: {
-        frontend: { root: 'apps/web' },
+        frontend: { root: 'apps/web', changedOnly: true },
         backend: { root: 'src' },
       },
     };

@@ -30,13 +30,13 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { Command } from 'commander';
 import pc from 'picocolors';
 
 import { loadRules } from './loader.js';
-import { runRules, runRulesStream } from './runner.js';
+import { collectChangedFiles, runRules, runRulesStream } from './runner.js';
 import { BUNDLES, detectGrammarMismatch, resolveBundle } from './bundles/index.js';
 import { renderText, renderSummary, renderFinding } from './reporter/text.js';
 import { renderSarif } from './reporter/sarif.js';
@@ -470,9 +470,42 @@ async function runCheck(options: CheckOptions): Promise<number> {
   // `scopes:` map; per-scope re-loads happen below.
   const repoConfigResult = await loadConfig({ cwd, args: cliArgsFromOptions(options) });
   const requestedScopes = parseScopeNames(options.scope);
-  const scopesToRun: ResolvedScope[] = requestedScopes.length > 0
+  let scopesToRun: ResolvedScope[] = requestedScopes.length > 0
     ? resolveScopes(repoConfigResult.config, requestedScopes, cwd)
     : defaultScopes(repoConfigResult.config, cwd);
+
+  if (
+    requestedScopes.length === 0
+    && !options.all
+    && !options.watch
+    && !options.stream
+    && scopesToRun.some((scope) => scope.changedOnly)
+  ) {
+    const changedFiles = await collectChangedFiles(cwd, options.diffBase as string);
+    if (changedFiles.length === 0) {
+      getLogger().warn(
+        { scopeCount: scopesToRun.length },
+        'no changed files detected — running every scope',
+      );
+    } else {
+      scopesToRun = scopesToRun.filter((scope) => {
+        if (!scope.changedOnly) {
+          return true;
+        }
+        const rootPrefix = scope.root.endsWith(sep) ? scope.root : `${scope.root}${sep}`;
+        const hasChangedFiles = changedFiles.some(
+          (file) => file === scope.root || file.startsWith(rootPrefix),
+        );
+        if (!hasChangedFiles) {
+          getLogger().info(
+            { scope: scope.name },
+            `scope '${scope.name}' has no changed files — skipped`,
+          );
+        }
+        return hasChangedFiles;
+      });
+    }
+  }
 
   const exitOn = (options.exitOn as Severity) ?? 'error';
   const format = (options.format as string) ?? 'text';
