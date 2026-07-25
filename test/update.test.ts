@@ -1,0 +1,50 @@
+import { readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+
+const CACHE_PATH = join(process.cwd(), '.regent-update-cache.json');
+const HOUR_MS = 60 * 60 * 1000;
+const NOW = Date.parse('2026-07-26T12:00:00.000Z');
+
+function writeCache(entry: Record<string, unknown>): void {
+  writeFileSync(CACHE_PATH, JSON.stringify(entry), 'utf8');
+}
+
+function mockRegistry(latest: string, publishedAt: string) {
+  const fetchMock = vi.fn().mockResolvedValue({
+    ok: true,
+    json: async () => ({ 'dist-tags': { latest }, time: { [latest]: publishedAt } }),
+  });
+  vi.stubGlobal('fetch', fetchMock);
+  return fetchMock;
+}
+
+beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(NOW); vi.resetModules(); rmSync(CACHE_PATH, { force: true }); });
+afterEach(() => { rmSync(CACHE_PATH, { force: true }); vi.unstubAllGlobals(); vi.useRealTimers(); });
+it('refreshes a two-hour-old cache while the latest release is under 48 hours old', async () => {
+  writeCache({ checkedAt: NOW - 2 * HOUR_MS, latest: '0.6.0', publishedAt: new Date(NOW - 24 * HOUR_MS).toISOString() });
+  const fetchMock = mockRegistry('0.6.1', new Date(NOW).toISOString());
+  const { getUpdateInfo } = await import('../src/cli/update.js');
+
+  expect((await getUpdateInfo())?.latest).toBe('0.6.1');
+  expect(fetchMock).toHaveBeenCalledOnce();
+});
+
+it('reuses a two-hour-old cache once the latest release is over 48 hours old', async () => {
+  writeCache({ checkedAt: NOW - 2 * HOUR_MS, latest: '0.6.0', publishedAt: new Date(NOW - 72 * HOUR_MS).toISOString() });
+  const fetchMock = mockRegistry('0.6.1', new Date(NOW).toISOString());
+  const { getUpdateInfo } = await import('../src/cli/update.js');
+
+  expect((await getUpdateInfo())?.latest).toBe('0.6.0');
+  expect(fetchMock).not.toHaveBeenCalled();
+});
+
+it('fetches and caches the latest version with its publish time on a miss', async () => {
+  const publishedAt = new Date(NOW - 24 * HOUR_MS).toISOString();
+  const fetchMock = mockRegistry('0.6.0', publishedAt);
+  const { getUpdateInfo } = await import('../src/cli/update.js');
+
+  expect((await getUpdateInfo())?.latest).toBe('0.6.0');
+  expect(fetchMock).toHaveBeenCalledOnce();
+  expect(JSON.parse(readFileSync(CACHE_PATH, 'utf8'))).toEqual({ checkedAt: NOW, latest: '0.6.0', publishedAt });
+});

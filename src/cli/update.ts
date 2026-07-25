@@ -5,7 +5,7 @@
  * command for users who want to upgrade.
  *
  * Two surfaces:
- *   - `checkForUpdate()` — non-blocking, ~24h cache; called from
+ *   - `checkForUpdate()` — non-blocking, adaptive 1h/24h cache; called from
  *     `regent check` / `regent list` startup to print a single dim
  *     stderr line if outdated. Best-effort: any network error is
  *     swallowed silently (don't fail a run because npmjs is down).
@@ -13,7 +13,7 @@
  *     the upgrade command for the user's PM (npm / pnpm / yarn /
  *     bun), and exits non-zero if already up-to-date.
  *
- * Registry: hardcoded to `https://registry.npmjs.org/@dot-stbl/regent/latest`.
+ * Registry: hardcoded to `https://registry.npmjs.org/@dot-stbl/regent`.
  * Override via `STBL_REGENT_REGISTRY` for internal/private mirrors.
  * Network timeout: 3s — anything longer and the user gets a worse
  * experience than a missed upgrade hint.
@@ -26,13 +26,21 @@ import { fileURLToPath } from 'node:url';
 
 import pc from 'picocolors';
 
-const REGISTRY_URL_DEFAULT = 'https://registry.npmjs.org/@dot-stbl/regent/latest';
+const REGISTRY_URL_DEFAULT = 'https://registry.npmjs.org/@dot-stbl/regent';
 const TIMEOUT_MS = 3000;
-const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const FRESH_RELEASE_TTL_MS = 60 * 60 * 1000;
+const STEADY_TTL_MS = 24 * 60 * 60 * 1000;
+const FRESH_RELEASE_WINDOW_MS = 48 * 60 * 60 * 1000;
 
 interface CachedResult {
   readonly checkedAt: number;
   readonly latest: string;
+  readonly publishedAt?: string | null;
+}
+
+interface LatestRelease {
+  readonly latest: string;
+  readonly publishedAt: string | null;
 }
 
 interface UpdateInfo {
@@ -84,11 +92,17 @@ function readCache(): CachedResult | null {
   try {
     const raw = readFileSync(path, 'utf8');
     const parsed = JSON.parse(raw) as unknown;
+    const parsedCache = parsed as {
+      readonly checkedAt?: unknown;
+      readonly latest?: unknown;
+      readonly publishedAt?: unknown;
+    };
     if (
       typeof parsed === 'object'
       && parsed !== null
-      && typeof (parsed as { checkedAt?: unknown }).checkedAt === 'number'
-      && typeof (parsed as { latest?: unknown }).latest === 'string'
+      && typeof parsedCache.checkedAt === 'number'
+      && typeof parsedCache.latest === 'string'
+      && (parsedCache.publishedAt === undefined || parsedCache.publishedAt === null || typeof parsedCache.publishedAt === 'string')
     ) {
       cache = parsed as CachedResult;
       return cache;
@@ -99,13 +113,13 @@ function readCache(): CachedResult | null {
   return null;
 }
 
-function writeCache(latest: string): void {
+function writeCache(release: LatestRelease): void {
   const path = resolveCachePath();
   if (path === null) {
     return;
   }
   try {
-    const entry: CachedResult = { checkedAt: Date.now(), latest };
+    const entry: CachedResult = { checkedAt: Date.now(), ...release };
     mkdirSync(dirname(path), { recursive: true });
     writeFileSync(path, JSON.stringify(entry), 'utf8');
     cache = entry;
@@ -191,7 +205,7 @@ function readInstalledVersion(): string {
  * Fetch the latest published version from the npm registry.
  * Returns `null` on any failure (network, timeout, parse, schema).
  */
-async function fetchLatestVersion(): Promise<string | null> {
+async function fetchLatestVersion(): Promise<LatestRelease | null> {
   const url = process.env['STBL_REGENT_REGISTRY'] ?? REGISTRY_URL_DEFAULT;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
@@ -200,16 +214,32 @@ async function fetchLatestVersion(): Promise<string | null> {
     if (!res.ok) {
       return null;
     }
-    const body = await res.json() as { version?: unknown };
-    if (typeof body.version !== 'string') {
+    const body = await res.json() as {
+      readonly version?: unknown;
+      readonly 'dist-tags'?: { readonly latest?: unknown };
+      readonly time?: Readonly<Record<string, unknown>>;
+    };
+    const latest = body['dist-tags']?.latest ?? body.version;
+    if (typeof latest !== 'string') {
       return null;
     }
-    return body.version;
+    const publishedAt = body.time?.[latest];
+    if (typeof publishedAt === 'string') {
+      return Number.isNaN(Date.parse(publishedAt)) ? null : { latest, publishedAt };
+    }
+    return typeof body.version === 'string' ? { latest, publishedAt: null } : null;
   } catch {
     return null;
   } finally {
     clearTimeout(timer);
   }
+}
+
+function cacheTtlMs(cached: CachedResult, now: number): number {
+  const publishedAt = Date.parse(cached.publishedAt ?? '');
+  return Number.isFinite(publishedAt) && now - publishedAt < FRESH_RELEASE_WINDOW_MS
+    ? FRESH_RELEASE_TTL_MS
+    : STEADY_TTL_MS;
 }
 
 /**
@@ -220,7 +250,8 @@ export async function getUpdateInfo(forceRefresh = false): Promise<UpdateInfo | 
   const current = readInstalledVersion();
   if (!forceRefresh) {
     const cached = readCache();
-    if (cached !== null && Date.now() - cached.checkedAt < CACHE_TTL_MS) {
+    const now = Date.now();
+    if (cached !== null && now - cached.checkedAt < cacheTtlMs(cached, now)) {
       return {
         current,
         latest: cached.latest,
@@ -228,15 +259,15 @@ export async function getUpdateInfo(forceRefresh = false): Promise<UpdateInfo | 
       };
     }
   }
-  const latest = await fetchLatestVersion();
-  if (latest === null) {
+  const release = await fetchLatestVersion();
+  if (release === null) {
     return null;
   }
-  writeCache(latest);
+  writeCache(release);
   return {
     current,
-    latest,
-    upgradeAvailable: compareSemver(current, latest) < 0,
+    latest: release.latest,
+    upgradeAvailable: compareSemver(current, release.latest) < 0,
   };
 }
 
