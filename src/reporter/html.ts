@@ -53,6 +53,7 @@ interface SeverityCounts {
   violation: number;
   pending: number;
   accepted: number;
+  'native-tool-required': number;
 }
 
 const ZERO_COUNTS: SeverityCounts = {
@@ -62,6 +63,7 @@ const ZERO_COUNTS: SeverityCounts = {
   violation: 0,
   pending: 0,
   accepted: 0,
+  'native-tool-required': 0,
 };
 
 /**
@@ -163,6 +165,9 @@ function renderCounters(counts: SeverityCounts): string {
       `<span class="chip chip-muted">${counts.accepted} accepted</span>`,
     );
   }
+  if (counts['native-tool-required'] > 0) {
+    chips.push(`<span class="chip chip-warning">${counts['native-tool-required']} native tool required</span>`);
+  }
   if (chips.length === 0) {
     return '<p class="all-clear">✓ no findings</p>';
   }
@@ -221,26 +226,32 @@ function renderFindingRows(finding: Finding, cwd: string): string[] {
         : ` · Captures: <code>${escapeHtml(Object.entries(finding.ast.captured)
             .map(([name, value]) => `${name} = ${value}`)
             .join(', '))}</code></span>`);
+  const requirement = finding.needsNative === undefined ? ''
+    : `<br><small>requires ${escapeHtml(`${finding.needsNative.tool}/${finding.needsNative.analyzer}${finding.needsNative.guidance === undefined ? '' : ` — ${finding.needsNative.guidance}`}`)}</small>`;
   // Defensive: a finding without a `status` (e.g. a synthetic test
   // fixture) renders as if it were a violation. Same default the
   // text reporter uses for non-review rules.
-  const status: 'violation' | 'pending' | 'accepted' = finding.status ?? 'violation';
+  const status: Finding['status'] = finding.status ?? 'violation';
   const dataAttrs = [
     `data-severity="${escapeHtml(finding.severity)}"`,
     `data-status="${escapeHtml(status)}"`,
   ];
 
-  const sevLabel = status === 'pending' && finding.review
-    ? 'review'
-    : finding.severity;
-  const sevClass = `sev sev-${escapeHtml(sevLabel)}`;
+  const sevLabel = status === 'native-tool-required'
+    ? 'native-tool'
+    : status === 'pending' && finding.review
+      ? 'review'
+      : finding.severity;
+  const sevClass = status === 'native-tool-required'
+    ? 'sev sev-warning'
+    : `sev sev-${escapeHtml(sevLabel)}`;
 
   const rows: string[] = [
     `<tr class="finding" ${dataAttrs.join(' ')}>`,
     `<td class="loc">${location || '<span class="synthetic">synthetic</span>'}</td>`,
     `<td><span class="${sevClass}">${escapeHtml(sevLabel)}</span></td>`,
     `<td><code class="rule">${ruleId}</code></td>`,
-    `<td class="message">${message}${astMetadata}</td>`,
+    `<td class="message">${message}${requirement}${astMetadata}</td>`,
     '</tr>',
   ];
 
@@ -308,10 +319,12 @@ function hasContext(finding: Finding): boolean {
 function countBySeverity(findings: readonly Finding[]): SeverityCounts {
   const c: SeverityCounts = { ...ZERO_COUNTS };
   for (const f of findings) {
-    c[f.severity]++;
-    // Defensive: a finding without `status` counts as a violation
-    // (mirrors the row default above).
-    c[f.status ?? 'violation']++;
+    if (f.status === 'native-tool-required') {
+      c[f.status]++;
+    } else {
+      c[f.severity]++;
+      c[f.status ?? 'violation']++;
+    }
   }
   return c;
 }

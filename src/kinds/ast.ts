@@ -4,7 +4,11 @@
 // string) from `.HasColumnName("id")` (required) — AST can.
 
 import type { AstGrepConfig } from '../ast/matcher.js';
-import type { RuleOrigin, Severity } from '../types.js';
+import type {
+  NativeToolRequirement,
+  RuleOrigin,
+  Severity,
+} from '../types.js';
 
 export interface AstRuleSpec {
   /** Stable id, e.g. `csharp.ef.magic-property`. */
@@ -19,6 +23,7 @@ export interface AstRuleSpec {
   /** Back-link to the `.md` prose (SARIF `helpUri`). Auto-derived when omitted. */
   readonly source?: string;
   readonly rationale?: string;
+  readonly needsNative?: NativeToolRequirement;
   /** The ast-grep matcher (pattern + optional constraints), passed through. */
   readonly ast: AstGrepConfig;
 }

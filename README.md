@@ -172,6 +172,18 @@ export default defineDetectRule({
 });
 ```
 
+### Native semantic analysis
+
+AST rules needing type or symbol resolution declare `needsNative`; Regent then
+emits non-failing `native-tool-required` findings for agent dispatch:
+
+```ts
+needsNative: { tool: 'roslyn-analyzers', analyzer: 'CS8602' }
+```
+
+See `examples/csharp/csharp.nullability.possible-dereference.lint.ts`. Unknown
+tool ids fail at load time.
+
 Companion `.md` (auto-discovered as `spec.source`):
 
 ```md

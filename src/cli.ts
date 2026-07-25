@@ -889,8 +889,11 @@ async function runList(options: ListOptions): Promise<void> {
   }
   for (const r of loaded.astRules) {
     const sev = severityColored(r.spec.severity, useColor);
+    const nativeFlag = r.spec.needsNative === undefined
+      ? ''
+      : ` [needsNative: ${r.spec.needsNative.tool}/${r.spec.needsNative.analyzer}]`;
     const origin = formatOrigin(r.origin);
-    console.log(`${r.spec.id}\t${sev}\tast\t${origin}`);
+    console.log(`${r.spec.id}\t${sev}${nativeFlag}\tast\t${origin}`);
   }
   for (const r of loaded.transformRules) {
     const sev = severityColored(r.spec.severity, useColor);

@@ -25,6 +25,7 @@ beforeAll(() => {
   severity: 'warning',
   message: 'magic-string property reference',
   globs: ['**/*.cs'],
+  needsNative: { tool: 'roslyn-analyzers', analyzer: 'CS8602' },
   ast: { rule: { pattern: '$O.Property($A)' }, constraints: { A: { has: { kind: 'string_literal' } } } },
 };`,
   );
@@ -48,6 +49,8 @@ describe('ast rule-file discovery', () => {
     const loaded = await loadRules({ repoRoot: DIR, skipLocal: true });
     expect(loaded.astRules.map((r) => r.spec.id)).toContain('test.ef.magic-property');
     expect(loaded.astRules.find((r) => r.spec.id === 'test.ef.magic-property')?.spec.language).toBe('csharp');
+    expect(loaded.astRules.find((r) => r.spec.id === 'test.ef.magic-property')?.spec.needsNative)
+      .toEqual({ tool: 'roslyn-analyzers', analyzer: 'CS8602' });
     // The regex rule went to `rules`, not `astRules`.
     expect(loaded.astRules.map((r) => r.spec.id)).not.toContain('test.no-region');
     expect(loaded.rules.map((r) => r.spec.id)).toContain('test.no-region');

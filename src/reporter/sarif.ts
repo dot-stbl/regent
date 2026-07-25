@@ -22,6 +22,8 @@ import { relative } from 'node:path';
 import type {
   CompiledRule,
   Finding,
+  FindingStatus,
+  NativeToolRequirement,
   Severity,
 } from '../types.js';
 
@@ -69,13 +71,14 @@ interface SarifResult {
     readonly review?: boolean;
     readonly guidance?: string;
     readonly exitBehavior?: 'no-fail' | 'unreviewed-fails';
-    readonly status?: 'pending' | 'accepted' | 'violation';
+    readonly status?: FindingStatus;
     readonly kind?: 'detect' | 'fix';
     readonly fixable?: boolean;
     readonly ast?: {
       readonly nodeType: string;
       readonly captured: Readonly<Record<string, string>>;
     };
+    readonly needsNative?: NativeToolRequirement;
   };
 }
 
@@ -126,17 +129,21 @@ export function renderSarif(
           ...(f.review.guidance !== undefined ? { guidance: f.review.guidance } : {}),
           exitBehavior: f.review.exitBehavior,
           ...(f.ast !== undefined ? { ast: f.ast } : {}),
+          ...(f.needsNative !== undefined ? { needsNative: f.needsNative } : {}),
         }
       : {
           status: f.status,
           ...(kind !== undefined ? { kind } : {}),
           fixable: kind === 'fix',
           ...(f.ast !== undefined ? { ast: f.ast } : {}),
+          ...(f.needsNative !== undefined ? { needsNative: f.needsNative } : {}),
         };
 
     return {
       ruleId: f.ruleId,
-      level: f.review ? 'note' : severityToSarifLevel(f.severity),
+      level: f.review || f.status === 'native-tool-required'
+        ? 'note'
+        : severityToSarifLevel(f.severity),
       message: {
         text: buildMessageText(f),
       },
@@ -202,6 +209,12 @@ function buildMessageText(f: Finding): string {
   }
   if (f.review?.guidance) {
     parts.push(`[review guidance] ${f.review.guidance}`);
+  }
+  if (f.needsNative !== undefined) {
+    parts.push(`[native tool] ${f.needsNative.tool}/${f.needsNative.analyzer}`);
+    if (f.needsNative.guidance !== undefined) {
+      parts.push(f.needsNative.guidance);
+    }
   }
   if (f.acceptedReason) {
     parts.push(`[accepted] ${f.acceptedReason}`);

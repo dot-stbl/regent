@@ -556,6 +556,27 @@ async function scanFileContent(
     if (matchesExcludePath(astRule.spec.excludePaths, file)) {
       continue;
     }
+    if (astRule.spec.needsNative !== undefined) {
+      findings.push({
+        ruleId: astRule.spec.id,
+        severity: astRule.spec.severity,
+        path: file,
+        match: {
+          startLine: 0,
+          startColumn: 0,
+          endLine: 0,
+          endColumn: 0,
+          matchText: '',
+        },
+        context: { startLine: 0, endLine: 0, lines: [] },
+        message: astRule.spec.message,
+        source: astRule.source,
+        rationale: astRule.spec.rationale,
+        status: 'native-tool-required',
+        needsNative: astRule.spec.needsNative,
+      });
+      continue;
+    }
     const list = astByLang.get(astRule.spec.language);
     if (list) {
       list.push(astRule);

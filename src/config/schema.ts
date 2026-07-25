@@ -235,6 +235,14 @@ const AstRuleSpecSchema = z
     message: z.string().min(1),
     source: z.string().optional(),
     rationale: z.string().optional(),
+    needsNative: z
+      .object({
+        tool: z.string().min(1),
+        analyzer: z.string().min(1),
+        guidance: z.string().optional(),
+      })
+      .strict()
+      .optional(),
     // ast-grep matcher config (rule + optional constraints). Validated
     // loosely here — ast-grep validates the rule internals at scan time.
     ast: z.object({ rule: z.record(z.string(), z.unknown()) }).passthrough(),

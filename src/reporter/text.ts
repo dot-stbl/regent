@@ -37,6 +37,8 @@ interface RenderTextOptions {
   readonly columns?: number;
 }
 
+type FindingStage = 'violation' | 'review' | 'native-tool';
+
 /**
  * Render findings to a UTF-8 string. `cwd` is used to derive a
  * path-relative-from-cwd display (avoids long absolute paths).
@@ -53,9 +55,12 @@ export function renderText(
 
   const violations: Finding[] = [];
   const reviews: Finding[] = [];
+  const nativeFindings: Finding[] = [];
   for (const f of findings) {
     if (f.status === 'pending') {
       reviews.push(f);
+    } else if (f.status === 'native-tool-required') {
+      nativeFindings.push(f);
     } else {
       violations.push(f);
     }
@@ -63,7 +68,7 @@ export function renderText(
 
   const lines: string[] = [];
 
-  if (violations.length === 0 && (hideReview || reviews.length === 0)) {
+  if (violations.length === 0 && nativeFindings.length === 0 && (hideReview || reviews.length === 0)) {
     return `${c.green('✓')} no findings\n`;
   }
 
@@ -93,6 +98,14 @@ export function renderText(
     }
   }
 
+  if (nativeFindings.length > 0) {
+    lines.push('', renderSectionTitle('Native-tool delegation candidates', c), '');
+    for (const finding of nativeFindings) {
+      const rel = toForwardSlash(relative(options.cwd, finding.path));
+      lines.push('', formatFinding(finding, rel, 'native-tool', c, options.columns));
+    }
+  }
+
   return lines.join('\n').replace(/^\n+/, '') + '\n';
 }
 
@@ -103,7 +116,11 @@ export function renderText(
 export function renderFinding(finding: Finding, options: RenderTextOptions): string {
   const c = options.useColor ? pc : createDulledColorPalette();
   const rel = toForwardSlash(relative(options.cwd, finding.path));
-  const stage = finding.status === 'pending' ? 'review' : 'violation';
+  const stage: FindingStage = finding.status === 'pending'
+    ? 'review'
+    : finding.status === 'native-tool-required'
+      ? 'native-tool'
+      : 'violation';
   return `${formatFinding(finding, rel, stage, c, options.columns)}\n`;
 }
 
@@ -115,13 +132,15 @@ function renderSectionTitle(label: string, c: typeof pc): string {
 function formatFinding(
   finding: Finding,
   displayPath: string,
-  stage: 'violation' | 'review',
+  stage: FindingStage,
   c: typeof pc,
   columns?: number,
 ): string {
   const tag = stage === 'review'
     ? c.bgCyan(c.black(' review '))
-    : severityTag(finding.severity, c);
+    : stage === 'native-tool'
+      ? c.bgYellow(c.black(' native tool '))
+      : severityTag(finding.severity, c);
 
   const headerText = `${c.bold(displayPath)}:${finding.match.startLine + 1} ${tag} ${c.cyan(finding.ruleId)}`;
   const lines: string[] = columns === undefined
@@ -170,6 +189,11 @@ function formatFinding(
   }
   if (finding.source) {
     pushWrapped(lines, finding.source, `  ${c.dim('Source:')} `, '  ', columns);
+  }
+  if (stage === 'native-tool' && finding.needsNative !== undefined) {
+    const requirement = `${finding.needsNative.tool}/${finding.needsNative.analyzer}`
+      + (finding.needsNative.guidance === undefined ? '' : ` — ${finding.needsNative.guidance}`);
+    pushWrapped(lines, requirement, `  ${c.dim('Requires:')} `, '  ', columns);
   }
   if (stage === 'review' && finding.review?.guidance) {
     pushWrapped(lines, finding.review.guidance, `  ${c.dim('Guidance:')} `, '  ', columns);
@@ -284,8 +308,12 @@ export function renderSummary(
   totalRules?: number,
 ): string {
   const c = useColor ? pc : createDulledColorPalette();
-  const counts = { error: 0, warning: 0, suggestion: 0, pending: 0, accepted: 0, violation: 0 };
+  const counts = { error: 0, warning: 0, suggestion: 0, pending: 0, accepted: 0, violation: 0, native: 0 };
   for (const f of findings) {
+    if (f.status === 'native-tool-required') {
+      counts.native++;
+      continue;
+    }
     counts[f.severity]++;
     if (f.status === 'pending') counts.pending++;
     if (f.status === 'accepted') counts.accepted++;
@@ -309,6 +337,9 @@ export function renderSummary(
   }
   if (counts.accepted > 0) {
     parts.push(`${c.dim(`${counts.accepted} accepted`)}`);
+  }
+  if (counts.native > 0) {
+    parts.push(`${c.yellow(`${counts.native} native tool required`)}`);
   }
   return `${totalRules ?? rules.length} rules · ${parts.join(' · ')}\n`;
 }

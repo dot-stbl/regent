@@ -19,7 +19,14 @@
  *   `{ rules: [], findings: [], scannedFiles: 0 }`.
  */
 
-import type { CompiledRule, Finding, RunResult, Severity } from '../types.js';
+import type {
+  CompiledRule,
+  Finding,
+  FindingStatus,
+  NativeToolRequirement,
+  RunResult,
+  Severity,
+} from '../types.js';
 
 export interface JsonReporterOptions {
   readonly cwd: string;
@@ -45,11 +52,12 @@ export interface JsonFinding {
   readonly context: JsonFindingContext;
   readonly message: string;
   readonly source: string;
-  readonly status: 'violation' | 'pending' | 'accepted';
+  readonly status: FindingStatus;
   readonly ast?: {
     readonly nodeType: string;
     readonly captured: Readonly<Record<string, string>>;
   };
+  readonly needsNative?: NativeToolRequirement;
 }
 
 export interface JsonRuleDescriptor {
@@ -102,6 +110,7 @@ export function renderJson(
     source: f.source,
     status: f.status,
     ...(f.ast !== undefined ? { ast: f.ast } : {}),
+    ...(f.needsNative !== undefined ? { needsNative: f.needsNative } : {}),
   }));
 
   // The CLI uses `RunResult.scannedFiles` from the runner output; the
