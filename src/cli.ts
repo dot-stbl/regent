@@ -46,6 +46,7 @@ import type { AcceptEntry, CompiledRule, Finding, RunResult, RunnerScope, Severi
 import type { CompiledAstRule } from './kinds/ast.js';
 import { renderBanner } from './cli/banner.js';
 import { registerFixCommand } from './cli/fix.js';
+import { runInitPreCommit, type Tool as InitTool } from './cli/init.js';
 import { loadLlmText } from './llm.js';
 import { routeLlm } from './llm-router.js';
 import { renderDetectSchemaJson, renderFixRuleSchemaJson } from './llm-schema.js';
@@ -182,8 +183,25 @@ program
 
 program
   .command('init')
-  .description('Create a starter tools/audit/ tree in the current repo')
-  .action(() => {
+  .description('Scaffold a regent project (default: tools/audit/ tree; --pre-commit: install a git hook)')
+  .option('--pre-commit', 'install a pre-commit hook that runs regent check --diff on staged files')
+  .option('--tool <name>', 'hook runner: husky | lefthook | none (auto-detect by default)')
+  .action((options: { preCommit?: boolean; tool?: string }) => {
+    if (options.preCommit) {
+      const allowed = new Set(['husky', 'lefthook', 'none']);
+      const tool = options.tool;
+      if (tool !== undefined && !allowed.has(tool)) {
+        getLogger().error({ tool }, 'init --pre-commit: --tool must be husky | lefthook | none');
+        process.exitCode = 1;
+        return;
+      }
+      const summary = runInitPreCommit({ tool: tool as InitTool | undefined });
+      process.stdout.write(`${summary}\n`);
+      return;
+    }
+    if (options.tool !== undefined) {
+      getLogger().warn({ tool: options.tool }, '--tool ignored without --pre-commit');
+    }
     runInit();
   });
 
