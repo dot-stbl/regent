@@ -292,13 +292,30 @@ describe('runDoctorReport', () => {
     ]);
   });
 
-  it('reports all-green summary for this repo (with --no-network, regent-freshness skipped)', async () => {
-    const repoRoot = join(import.meta.dirname, '..');
-    const report = await runDoctorReport({ cwd: repoRoot, network: false });
-    // The repo has a .regentrc.ts (or tools/audit/config.ts) — at minimum
-    // the Config file + Config parses + Module type checks should be
-    // green. We don't assert every check (the user-global rules count
-    // depends on the developer's $HOME), only that the summary holds.
+  it('reports all-green summary for a synthetic fixture (with --no-network, regent-freshness skipped)', async () => {
+    // The earlier version of this test asserted summary.red === 0 against
+    // the live repo, which is a moving target (the repo doesn't ship a
+    // committed regent config; the assertion relied on untracked local
+    // setup that CI can't see). Use a deterministic fixture: every check
+    // is set up to its green/na path so the summary counter is the only
+    // thing under test. (User-global rules count and the developer's
+    // $HOME are deliberately out of scope — see test/doctor.test.ts
+    // §checkUserGlobalRules.)
+    writeFileSync(
+      join(tmpRoot, '.regentrc.js'),
+      `export default { rules: { detect: [], fix: [], extends: [], disable: [], override: {}, accept: [] } };`,
+    );
+    mkdirSync(join(tmpRoot, 'tools', 'audit', 'rules'), { recursive: true });
+    writeFileSync(join(tmpRoot, 'tools', 'audit', 'rules', 'foo.lint.ts'), 'export default {};');
+    writeFileSync(join(tmpRoot, 'package.json'), '{"type":"module"}');
+    const globalRoot = join(tmpRoot, 'global-rules');
+    mkdirSync(globalRoot, { recursive: true });
+    writeFileSync(join(globalRoot, 'csharp.no-todo.lint.ts'), 'export default {};');
+    process.env['STBL_REGENT_GLOBAL_RULES_PATH'] = globalRoot;
+    process.env['STBL_REGENT_NO_UPDATE_CHECK'] = '1';
+
+    const report = await runDoctorReport({ cwd: tmpRoot, network: false });
+
     expect(report.summary.red).toBe(0);
   });
 });
