@@ -21,37 +21,39 @@ const MODULE_NAME = 'regent';
 
 const GLOBAL_CONFIG_SUBDIR = '.config/regent';
 
-const fileExplorer = cosmiconfig(MODULE_NAME, {
-  searchPlaces: [
-    'package.json',
-    `.regentrc.ts`,
-    `.regentrc.js`,
-    `.regentrc.mjs`,
-    `.regentrc.cjs`,
-    `.regentrc.json`,
-    `.regentrc.yaml`,
-    `.regentrc.yml`,
-    `regent.config.ts`,
-    `regent.config.js`,
-    `regent.config.mjs`,
-    `regent.config.cjs`,
-    `regent.config.json`,
-    `regent.config.yaml`,
-    `regent.config.yml`,
-  ],
-  loaders: {
-    noExt: loadJsLike,
-    '.ts': loadJsLike,
-    '.js': loadJsLike,
-    '.mjs': loadJsLike,
-    '.cjs': loadJsLike,
-    '.json': loadJson,
-    '.yaml': loadYamlLike,
-    '.yml': loadYamlLike,
-  },
-  stopDir: process.cwd(),
-  cache: false,
-});
+function createFileExplorer(stopDir: string) {
+  return cosmiconfig(MODULE_NAME, {
+    searchPlaces: [
+      'package.json',
+      `.regentrc.ts`,
+      `.regentrc.js`,
+      `.regentrc.mjs`,
+      `.regentrc.cjs`,
+      `.regentrc.json`,
+      `.regentrc.yaml`,
+      `.regentrc.yml`,
+      `regent.config.ts`,
+      `regent.config.js`,
+      `regent.config.mjs`,
+      `regent.config.cjs`,
+      `regent.config.json`,
+      `regent.config.yaml`,
+      `regent.config.yml`,
+    ],
+    loaders: {
+      noExt: loadJsLike,
+      '.ts': loadJsLike,
+      '.js': loadJsLike,
+      '.mjs': loadJsLike,
+      '.cjs': loadJsLike,
+      '.json': loadJson,
+      '.yaml': loadYamlLike,
+      '.yml': loadYamlLike,
+    },
+    stopDir,
+    cache: false,
+  });
+}
 
 /**
  * Async loader used for ts/js/mjs/cjs files. We import the file via
@@ -153,7 +155,7 @@ export async function loadProjectConfig(cwd: string): Promise<RegentConfig | nul
  * cosmiconfig resolved. Used by `loadConfig()` for per-layer provenance.
  */
 export async function loadProjectConfigLayer(cwd: string): Promise<LoadedConfigLayer | null> {
-  const result = await fileExplorer.search(cwd);
+  const result = await createFileExplorer(cwd).search(cwd);
   if (!result || result.isEmpty) {
     return null;
   }
