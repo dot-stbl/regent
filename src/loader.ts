@@ -33,7 +33,7 @@ import { isAbsolute, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { loadConfig, type CliArgs, type ResolvedConfig } from './config/index.js';
-import type { FixRuleSpec } from './config/schema.js';
+import type { FixRuleSpec, ScopeSpec } from './config/schema.js';
 import type { AstRuleSpec, CompiledAstRule } from './kinds/ast.js';
 import type {
   CompiledTransformRule,
@@ -72,6 +72,19 @@ export interface LoaderOptions {
    * runs.
    */
   readonly scope?: ResolvedScope;
+
+  /**
+   * Scope spec from the root config (issue #105). When `scope` is
+   * also set, the spec's `extends[]` is prepended to the merged
+   * scope config's `rules.extends` — so a scope with inline
+   * `extends` only (no on-disk `.regentrc.*`) still flows rules
+   * through the existing `resolveExtendsItem` pipeline.
+   *
+   * `extends` paths and globs resolve against `<scope.root>` (set
+   * by `cwd = options.scope?.root` below); inline rule arrays
+   * pass through unchanged.
+   */
+  readonly scopeSpec?: ScopeSpec;
 }
 
 export interface LoaderRuleSet {
@@ -118,7 +131,31 @@ export async function loadRules(options: LoaderOptions): Promise<LoaderRuleSet> 
   const repoRoot = options.repoRoot ?? process.cwd();
   const cwd = options.scope?.root ?? repoRoot;
 
-  const { config, sources } = await loadConfig({ cwd, args: options.args });
+  const { config: mergedConfig, sources } = await loadConfig({ cwd, args: options.args });
+
+  // Issue #105 — inline scope `extends`. When the caller passes the
+  // scope's `ScopeSpec` (issue #35 named-scopes MVP shape), the
+  // `extends[]` becomes the lowest-precedence slice of the scope's
+  // effective config: every entry flows through the existing
+  // `resolveExtendsItem` loop below (paths/globs/npm/inline arrays).
+  // The on-disk scope `.regentrc.*` overrides inline extends on
+  // conflict via the natural `mergeConfigs` last-wins path — here
+  // achieved by prepending the inline extends so the same-id wins
+  // goes to the later (on-disk) layer.
+  const scopeExtends = options.scopeSpec?.extends ?? [];
+  const config: ResolvedConfig =
+    options.scope !== undefined && scopeExtends.length > 0
+      ? {
+          ...mergedConfig,
+          rules: {
+            ...mergedConfig.rules,
+            extends: [
+              ...scopeExtends,
+              ...mergedConfig.rules.extends,
+            ],
+          },
+        }
+      : mergedConfig;
 
   const allRules: CompiledRule[] = [];
   const fileAstRules: CompiledAstRule[] = [];

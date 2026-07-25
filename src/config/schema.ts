@@ -227,18 +227,37 @@ const AcceptEntrySchema = z
 
 /**
  * A single scope entry (issue #35). MVP shape: `{ root: string }`.
- * Follow-ups will widen this to `extends` / per-scope `rules` /
- * per-scope `excludePaths` — see `gh issue list --repo
- * dot-stbl/regent --milestone v0.4.0` for the backlog.
+ * Issue #105 widens this with an inline `extends[]` so a scope can
+ * declare its own rule set inline without dropping a `.regentrc.*`
+ * file in the subproject's root. Future fields (`per-scope rules`,
+ * `excludePaths`) land in their own follow-ups — see `gh issue list
+ * --repo dot-stbl/regent --milestone v0.4.0` for the backlog.
  *
  * `root` is a repo-relative path (absolute paths also accepted) that
  * resolves to the scope's working directory — config discovery, rule
  * file pickup, and the runner's `cwd` all anchor here when the user
  * runs `regent <cmd> -s <name>`.
+ *
+ * `extends` reuses the top-level `rules.extends` shape: each entry is
+ * either a string (path / glob / npm package spec — resolved by the
+ * existing `resolveExtendsItem` machinery in `src/loader.ts`) or an
+ * inline rule array (passed through to `rules.detect[]` shape). The
+ * merge is performed by `loadScopeConfigLayer` in
+ * `src/config/scope-loader.ts`, with the on-disk scope config taking
+ * precedence over inline extends (last-wins via `mergeConfigs`).
  */
+const ScopeExtendsItemSchema = z.union([
+  z.string().min(1),
+  z.array(z.unknown()).readonly(),
+]);
+
 const ScopeSpecSchema = z
   .object({
     root: z.string().min(1),
+    extends: z
+      .array(ScopeExtendsItemSchema)
+      .readonly()
+      .default([]),
   })
   .strict();
 
