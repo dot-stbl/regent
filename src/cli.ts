@@ -51,6 +51,7 @@ import { registerFixCommand } from './cli/fix.js';
 import { checkForUpdateWithTimeout, formatUpdateWarning, runUpdate } from './cli/update.js';
 import { emitModuleTypeHint } from './cli/module-type-check.js';
 import { registerDescribeCommand } from './cli/describe.js';
+import { loadRulesWithProgress } from './cli/startup-progress.js';
 import { loadLlmText } from './llm.js';
 import { routeLlm } from './llm-router.js';
 import { renderDetectSchemaJson, renderFixRuleSchemaJson } from './llm-schema.js';
@@ -402,7 +403,10 @@ async function runCheck(options: CheckOptions): Promise<number> {
 
   let loadedRules;
   try {
-    loadedRules = await loadRules({ repoRoot: cwd, args: cliArgsFromOptions(options) });
+    loadedRules = await loadRulesWithProgress(
+      () => loadRules({ repoRoot: cwd, args: cliArgsFromOptions(options) }),
+      { quiet: options.quiet === true },
+    );
   } catch (err) {
     getLogger().error({ err: { message: (err as Error).message } }, 'failed to load rules');
     return 1;
@@ -820,7 +824,7 @@ async function runReview(options: ReviewOptions): Promise<number> {
   return 0;
 }
 
-async function runList(_options: ListOptions): Promise<void> {
+async function runList(options: ListOptions): Promise<void> {
   const cwd = process.cwd();
   const useColor = shouldUseColor({ color: true } as unknown as CheckOptions);
 
@@ -829,7 +833,10 @@ async function runList(_options: ListOptions): Promise<void> {
     process.stderr.write(`regent: ${formatUpdateWarning(updateInfo, useColor)}\n`);
   }
 
-  const loaded = await loadRules({ repoRoot: cwd });
+  const loaded = await loadRulesWithProgress(
+    () => loadRules({ repoRoot: cwd }),
+    { quiet: options.quiet === true },
+  );
   for (const r of loaded.rules) {
     const sev = severityColored(r.spec.severity, useColor);
     const reviewFlag = r.spec.review?.enabled
@@ -1373,6 +1380,7 @@ interface CheckOptions {
   stream?: boolean;
   watch?: boolean;
   columns?: number;
+  quiet?: boolean;
 }
 
 interface ReviewOptions {
@@ -1386,6 +1394,7 @@ interface ReviewOptions {
 interface ListOptions {
   config?: string;
   scope?: string;
+  quiet?: boolean;
 }
 
 interface AcceptOptions {
