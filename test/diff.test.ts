@@ -139,7 +139,13 @@ describe('renderUnifiedDiff', () => {
   });
 });
 
-describe.sequential('runDiff', () => {
+// `describe.sequential` is a vitest-only API; under `bun test` it's undefined
+// and the unhandled error between tests hangs the runner. The two tests in
+// this block share the on-disk diff cache and need to run in order — they
+// already use distinct `cwd`/cache paths so the order is just an
+// implementation detail. Plain `describe` works under both runners.
+// (Vitest users get the same semantics because the cache key is the cwd.)
+describe('runDiff', () => {
   it('compares the current run with the cached previous run', async () => {
     const cwd = root();
     saveCachedDiff(run(finding('old.rule', 'src/old.ts', 3, 'warning')), cwd);
