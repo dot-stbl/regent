@@ -36,6 +36,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import { runRules } from '../src/runner.js';
+import type { AstRuleSpec, CompiledAstRule } from '../src/kinds/ast.js';
 import type { CompiledRule, RuleSpec } from '../src/types.js';
 
 const REPO_ROOT = join(import.meta.dirname, '..');
@@ -74,15 +75,32 @@ function loadFixtures(): FixturePair[] {
   return out;
 }
 
-async function loadExampleRule(ruleId: string): Promise<RuleSpec> {
+/**
+ * Duck-type discriminator for the two rule kinds shipped under
+ * `examples/<lang>/*.lint.ts`. Mirrors `isAstRuleSpec` in
+ * `src/loader.ts` (private there). An `AstRuleSpec` carries an
+ * `ast: AstGrepConfig` payload; a regex `RuleSpec` carries a
+ * `pattern: string`. We discriminate on `ast`, the AST-only field.
+ */
+function isAstRuleSpec(value: unknown): value is AstRuleSpec {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const obj = value as Record<string, unknown>;
+  return typeof obj['ast'] === 'object' && obj['ast'] !== null;
+}
+
+type ExampleSpec = RuleSpec | AstRuleSpec;
+
+async function loadExampleRule(ruleId: string): Promise<ExampleSpec> {
   const path = join(EXAMPLES_DIR, 'csharp', `${ruleId}.lint.ts`);
   const url = new URL(`file://${path.replace(/\\/g, '/')}`).href;
-  const mod = (await import(url)) as { default: RuleSpec };
+  const mod = (await import(url)) as { default: ExampleSpec };
   return mod.default;
 }
 
 async function runRuleOnText(
-  spec: RuleSpec,
+  spec: ExampleSpec,
   text: string,
   fileName: string,
 ): Promise<number> {
@@ -96,6 +114,23 @@ async function runRuleOnText(
   try {
     const filePath = join(tmp, fileName);
     writeFileSync(filePath, text);
+    if (isAstRuleSpec(spec)) {
+      const astRule: CompiledAstRule = {
+        spec,
+        source: '<test>',
+        origin: { kind: 'repo', path: tmp },
+      };
+      const result = await runRules([], {
+        cwd: tmp,
+        includeGlobs: [fileName],
+        excludeGlobs: [],
+        changedOnly: false,
+        diffBase: 'HEAD',
+      }, {
+        astRules: [astRule],
+      });
+      return result.findings.length;
+    }
     const rule: CompiledRule = {
       spec,
       source: '<test>',
