@@ -49,6 +49,7 @@ import type { CompiledAstRule } from './kinds/ast.js';
 import { renderBanner } from './cli/banner.js';
 import { registerFixCommand } from './cli/fix.js';
 import { checkForUpdateWithTimeout, formatUpdateWarning, runUpdate } from './cli/update.js';
+import { emitModuleTypeHint } from './cli/module-type-check.js';
 import { registerDescribeCommand } from './cli/describe.js';
 import { loadLlmText } from './llm.js';
 import { routeLlm } from './llm-router.js';
@@ -75,6 +76,7 @@ program
   .option('--log-level <level>', 'log level (trace|debug|info|warn|error|fatal)')
   .option('--log-format <fmt>', 'log format (text|json)')
   .hook('preAction', (thisCommand) => {
+    emitModuleTypeHint(process.cwd(), pc.isColorSupported);
     const opts = thisCommand.opts();
     const envLevel = process.env['STBL_REGENT_LOG_LEVEL'];
     const envFormat = process.env['STBL_REGENT_LOG_FORMAT'];
