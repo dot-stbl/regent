@@ -50,6 +50,7 @@ import { renderBanner } from './cli/banner.js';
 import { registerFixCommand } from './cli/fix.js';
 import { checkForUpdateWithTimeout, formatUpdateWarning, runUpdate } from './cli/update.js';
 import { registerDescribeCommand } from './cli/describe.js';
+import { registerDiffCommand } from './cli/diff.js';
 import { loadLlmText } from './llm.js';
 import { routeLlm } from './llm-router.js';
 import { renderDetectSchemaJson, renderFixRuleSchemaJson } from './llm-schema.js';
@@ -231,6 +232,7 @@ program
 
 registerFixCommand(program);
 registerDescribeCommand(program);
+registerDiffCommand(program);
 
 program
   .command('update')
