@@ -43,6 +43,7 @@ import { BUNDLES } from './bundles/index.js';
 import { renderText, renderSummary, renderFinding } from './reporter/text.js';
 import { renderSarif } from './reporter/sarif.js';
 import { renderJsonFromRun } from './reporter/json.js';
+import { renderHtml } from './reporter/html.js';
 import { renderReview, renderReviewJson } from './reporter/review.js';
 import type { AcceptEntry, CompiledRule, Finding, RunResult, RunnerScope, Severity } from './types.js';
 import type { CompiledAstRule } from './kinds/ast.js';
@@ -112,7 +113,7 @@ program
   .option('--scope <dir>', 'scope directory', '.')
   .option('--all', 'scan all files (not just git-changed)')
   .option('--diff-base <ref>', 'git diff base', 'HEAD')
-  .option('--format <fmt>', 'output format', 'text')
+  .option('--format <fmt>', 'output format: text|json|sarif|html|both', 'text')
   .option('--out <file>', 'write to file instead of stdout')
   .option('--exit-on <severity>', 'fail if findings at or above this severity', 'error')
   .option('--include-rules <patterns>', 'comma-separated rule-id patterns to include')
@@ -541,6 +542,14 @@ async function runCheck(options: CheckOptions): Promise<number> {
       { findings, rules: result.rules, scannedFiles: result.scannedFiles },
       { cwd },
     );
+  } else if (format === 'html') {
+    // HTML is a single self-contained document; the CLI uses `--out`
+    // (if supplied) to pick a destination, otherwise the bytes go to
+    // stdout (where the user can redirect with `> report.html`).
+    output = renderHtml(
+      { findings, rules: result.rules, scannedFiles: result.scannedFiles },
+      { cwd, version: VERSION },
+    );
   } else if (format === 'both') {
     output = renderText(findings, { cwd, useColor, hideReview, columns });
     output += '\n--- SARIF ---\n';
@@ -636,6 +645,11 @@ async function runCheckWatch(args: {
       output = renderJsonFromRun(
         { findings, rules: result.rules, scannedFiles: result.scannedFiles },
         { cwd },
+      );
+    } else if (format === 'html') {
+      output = renderHtml(
+        { findings, rules: result.rules, scannedFiles: result.scannedFiles },
+        { cwd, version: VERSION },
       );
     } else {
       output = renderText(findings, { cwd, useColor, hideReview, columns });

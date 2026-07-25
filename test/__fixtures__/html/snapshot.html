@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>regent check — repo</title>
+<style>
+:root {
+  color-scheme: light dark;
+  --bg: #ffffff;
+  --surface: #f6f7f9;
+  --surface-2: #eef0f3;
+  --border: #d8dce1;
+  --ink: #1a1d21;
+  --ink-muted: #5a6068;
+  --ink-faint: #8a9098;
+  --code-bg: #f0f2f5;
+  --match-bg: #fff3c4;
+  --match-ink: #1a1d21;
+  --link: #0b5cff;
+  --sev-error: #c41e3a;
+  --sev-error-soft: #fde2e7;
+  --sev-warning: #a8651b;
+  --sev-warning-soft: #fdebcf;
+  --sev-suggestion: #1f6feb;
+  --sev-suggestion-soft: #dde8fb;
+  --sev-review: #6a3fa0;
+  --sev-review-soft: #ecdef9;
+  --sev-muted: #5a6068;
+  --sev-muted-soft: #e6e8eb;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #15171a;
+    --surface: #1c1f23;
+    --surface-2: #23272c;
+    --border: #2e3338;
+    --ink: #e6e8eb;
+    --ink-muted: #a4abb3;
+    --ink-faint: #71777e;
+    --code-bg: #1a1d21;
+    --match-bg: #5c4a14;
+    --match-ink: #fff3c4;
+    --link: #6aa1ff;
+    --sev-error: #ff7a8a;
+    --sev-error-soft: #3a1a21;
+    --sev-warning: #ffc56b;
+    --sev-warning-soft: #3a2a10;
+    --sev-suggestion: #82b1ff;
+    --sev-suggestion-soft: #1a2740;
+    --sev-review: #c69df3;
+    --sev-review-soft: #28193d;
+    --sev-muted: #a4abb3;
+    --sev-muted-soft: #23272c;
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue",
+               Arial, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  padding: 24px 32px 48px;
+  max-width: 1280px;
+  margin: 0 auto;
+}
+header { border-bottom: 1px solid var(--border); padding-bottom: 16px; margin-bottom: 24px; }
+h1 { font-size: 22px; margin: 0 0 12px; }
+h2 { font-size: 16px; margin: 24px 0 12px; }
+h2 .count { color: var(--ink-muted); font-weight: 400; }
+dl.meta { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; margin: 0; }
+dl.meta dt { color: var(--ink-muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
+dl.meta dd { margin: 0; }
+.counters { margin: 12px 0 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.all-clear { color: var(--ink-muted); margin: 12px 0 0; }
+.chip {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+.chip-error    { background: var(--sev-error-soft);    color: var(--sev-error);    border-color: transparent; }
+.chip-warning  { background: var(--sev-warning-soft);  color: var(--sev-warning);  border-color: transparent; }
+.chip-suggestion { background: var(--sev-suggestion-soft); color: var(--sev-suggestion); border-color: transparent; }
+.chip-review   { background: var(--sev-review-soft);   color: var(--sev-review);   border-color: transparent; }
+.chip-muted    { color: var(--ink-muted); }
+main { margin-top: 8px; }
+table.findings { width: 100%; border-collapse: collapse; font-size: 13px; }
+table.findings thead th {
+  text-align: left;
+  font-weight: 600;
+  padding: 8px 10px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  color: var(--ink-muted);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+table.findings tbody tr.finding td {
+  padding: 10px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+table.findings tbody tr.finding:last-child td { border-bottom: none; }
+table.findings tbody tr.excerpt td { padding: 0 10px 12px 10px; border-bottom: 1px solid var(--border); }
+table.findings tbody tr.empty td { padding: 20px; text-align: center; color: var(--ink-muted); }
+td.loc { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-size: 12px; white-space: nowrap; }
+td.loc code { background: transparent; padding: 0; }
+code { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-size: 12px; }
+code.rule { color: var(--link); }
+.synthetic { color: var(--ink-faint); font-style: italic; font-size: 12px; }
+.scope { display: inline-block; font-size: 11px; padding: 1px 6px; border-radius: 4px; background: var(--surface-2); color: var(--ink-muted); margin-left: 4px; }
+.sev {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 4px;
+  text-transform: lowercase;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+}
+.sev-error      { background: var(--sev-error-soft);      color: var(--sev-error); }
+.sev-warning    { background: var(--sev-warning-soft);    color: var(--sev-warning); }
+.sev-suggestion { background: var(--sev-suggestion-soft); color: var(--sev-suggestion); }
+.sev-review     { background: var(--sev-review-soft);     color: var(--sev-review); }
+td.message { word-break: break-word; }
+pre.code {
+  margin: 0;
+  padding: 10px 12px;
+  background: var(--code-bg);
+  border-radius: 6px;
+  overflow-x: auto;
+  font-size: 12px;
+  line-height: 1.45;
+}
+pre.code code { white-space: pre; }
+.line { display: block; }
+.line.dim { color: var(--ink-faint); }
+.line.match {
+  background: var(--match-bg);
+  color: var(--match-ink);
+  margin: 0 -12px;
+  padding: 0 12px;
+}
+.line .gutter {
+  display: inline-block;
+  width: 4ch;
+  color: var(--ink-faint);
+  text-align: right;
+  padding-right: 1ch;
+  user-select: none;
+}
+.line.match .gutter { color: var(--match-ink); font-weight: 600; }
+.line .content { white-space: pre; }
+p.rationale { color: var(--ink-muted); margin: 8px 0 4px; font-size: 12px; }
+p.source { color: var(--ink-muted); margin: 4px 0 0; font-size: 12px; }
+p.source code { color: var(--ink-faint); }
+footer { margin-top: 32px; padding-top: 16px; border-top: 1px solid var(--border); color: var(--ink-muted); font-size: 12px; }
+footer p { margin: 4px 0; }
+footer a { color: var(--link); }
+footer .hint { color: var(--ink-faint); }
+@media (max-width: 720px) {
+  body { padding: 16px; }
+  table.findings thead { display: none; }
+  table.findings tbody tr.finding td {
+    display: block;
+    padding: 4px 10px;
+  }
+  table.findings tbody tr.finding td.loc { padding-top: 10px; font-size: 12px; }
+  table.findings tbody tr.excerpt td { display: block; padding: 0 10px 12px; }
+}
+@media print {
+  body { padding: 0; max-width: none; }
+  pre.code { page-break-inside: avoid; }
+  table.findings tbody tr.finding { page-break-inside: avoid; }
+}
+</style>
+</head>
+<body>
+<header>
+<h1>regent check report</h1>
+<dl class="meta">
+<dt>Project</dt><dd>repo</dd>
+<dt>Generated</dt><dd><time datetime="2026-07-25T19:13:50.814Z">
+2026-07-25 19:13:50 UTC</time></dd>
+<dt>Files scanned</dt><dd>12</dd>
+<dt>Total findings</dt><dd>3</dd>
+</dl>
+<p class="counters"><span class="chip chip-error">1 error</span> <span class="chip chip-warning">1 warning</span> <span class="chip chip-suggestion">1 suggestion</span> <span class="chip chip-muted">3 violations</span></p>
+</header>
+<main>
+<h2>Findings <span class="count">
+3</span></h2>
+<table class="findings">
+<thead>
+<tr>
+<th scope="col">Location</th>
+<th scope="col">Severity</th>
+<th scope="col">Rule</th>
+<th scope="col">Message</th>
+</tr>
+</thead>
+<tbody>
+<tr class="finding" data-severity="suggestion" data-status="violation">
+<td class="loc"><code>src/Bar.cs:9:1</code></td>
+<td><span class="sev sev-suggestion">suggestion</span></td>
+<td><code class="rule">meta.trailing-newline</code></td>
+<td class="message">file must end with a trailing newline</td>
+</tr>
+<tr class="excerpt">
+<td colspan="4">
+<pre class="code"><code>
+<span class="line dim"><span class="gutter"> 6</span><span class="content">public class Bar</span></span>
+<span class="line dim"><span class="gutter"> 7</span><span class="content">{</span></span>
+<span class="line dim"><span class="gutter"> 8</span><span class="content">    int x;</span></span>
+<span class="line match"><span class="gutter"> 9</span><span class="content">}</span></span>
+<span class="line dim"><span class="gutter">10</span><span class="content">&nbsp;</span></span>
+</code></pre>
+<p class="rationale">POSIX text files end with a newline so cat does not bleed into the next prompt.</p>
+<p class="source">Source: <code>meta.md#trailing-newline</code></p>
+</td>
+</tr>
+<tr class="finding" data-severity="warning" data-status="violation">
+<td class="loc"><code>src/Foo.cs:5:1</code></td>
+<td><span class="sev sev-warning">warning</span></td>
+<td><code class="rule">csharp.no-region-directive</code></td>
+<td class="message">#region forbidden</td>
+</tr>
+<tr class="excerpt">
+<td colspan="4">
+<pre class="code"><code>
+<span class="line dim"><span class="gutter">2</span><span class="content">public class Foo</span></span>
+<span class="line dim"><span class="gutter">3</span><span class="content">{</span></span>
+<span class="line dim"><span class="gutter">4</span><span class="content">    int x;</span></span>
+<span class="line match"><span class="gutter">5</span><span class="content">    #region</span></span>
+<span class="line dim"><span class="gutter">6</span><span class="content">    int y;</span></span>
+<span class="line dim"><span class="gutter">7</span><span class="content">    #endregion</span></span>
+<span class="line dim"><span class="gutter">8</span><span class="content">}</span></span>
+</code></pre>
+<p class="source">Source: <code>code-shape.md#no-region</code></p>
+</td>
+</tr>
+<tr class="finding" data-severity="error" data-status="violation">
+<td class="loc"><code>src/Foo.cs:42:5</code></td>
+<td><span class="sev sev-error">error</span></td>
+<td><code class="rule">csharp.no-private-methods</code></td>
+<td class="message">no private methods in production code</td>
+</tr>
+<tr class="excerpt">
+<td colspan="4">
+<pre class="code"><code>
+<span class="line dim"><span class="gutter">40</span><span class="content">public sealed class Foo</span></span>
+<span class="line dim"><span class="gutter">41</span><span class="content">{</span></span>
+<span class="line match"><span class="gutter">42</span><span class="content">    private readonly ILogger _log;</span></span>
+<span class="line dim"><span class="gutter">43</span><span class="content">    private void Bar() {</span></span>
+<span class="line dim"><span class="gutter">44</span><span class="content">        return;</span></span>
+<span class="line dim"><span class="gutter">45</span><span class="content">    }</span></span>
+</code></pre>
+<p class="source">Source: <code>code-shape.md#no-private-business-logic</code></p>
+</td>
+</tr>
+</tbody>
+</table>
+</main>
+<footer>
+<p>Generated by <a class="ext" href="https://github.com/dot-stbl/regent">@dot-stbl/regent</a> v0.5.2</p>
+<p class="hint">Self-contained snapshot — no external assets, no scripts. Safe to share.</p>
+</footer>
+</body>
+</html>

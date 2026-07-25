@@ -20,3 +20,7 @@ tools/audit/config.local.ts
 # regent benchmark baseline (written by `regent benchmark`; persisted via CI cache)
 .regent/
 .regent-update-cache.json
+
+# Generated sample artefacts (used by the maintainer to eyeball a
+# reporter format; regenerated via `node scripts/gen-html-samples.ts`).
+test-artifacts/
