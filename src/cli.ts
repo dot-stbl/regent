@@ -50,6 +50,7 @@ import { renderBanner } from './cli/banner.js';
 import { registerFixCommand } from './cli/fix.js';
 import { checkForUpdateWithTimeout, formatUpdateWarning, runUpdate } from './cli/update.js';
 import { emitModuleTypeHint } from './cli/module-type-check.js';
+import { annotateFindings } from './cli/annotate-pr.js';
 import { registerDescribeCommand } from './cli/describe.js';
 import { loadRulesWithProgress } from './cli/startup-progress.js';
 import { registerDiffCommand } from './cli/diff.js';
@@ -128,6 +129,11 @@ program
   .option(
     '--concurrency <n>',
     'max in-flight file scans (overrides runner.concurrency / STBL_REGENT_RUNNER_CONCURRENCY)',
+    (value) => Number.parseInt(value, 10),
+  )
+  .option(
+    '--annotate-pr <num>',
+    'post each finding as a review comment on the given PR (uses `gh api`)',
     (value) => Number.parseInt(value, 10),
   )
   .action(async (options) => {
@@ -565,7 +571,16 @@ async function runCheck(options: CheckOptions): Promise<number> {
   // Exit code is computed on the FULL finding set (result.findings), not
   // the display-filtered `findings` — `--severity` / `--no-review` change
   // what is printed, never the exit code.
-  return computeExitCode(result.findings, (options.exitOn as Severity) ?? 'error');
+  const baseExit = computeExitCode(result.findings, (options.exitOn as Severity) ?? 'error');
+  if (options.annotatePr !== undefined) {
+    const annotationExit = await annotateFindings(
+      options.annotatePr,
+      result.findings,
+      { cwd },
+    );
+    return Math.max(baseExit, annotationExit);
+  }
+  return baseExit;
 }
 
 /**
@@ -1382,7 +1397,11 @@ interface CheckOptions {
   stream?: boolean;
   watch?: boolean;
   columns?: number;
+<<<<<<< HEAD
   quiet?: boolean;
+=======
+  annotatePr?: number;
+>>>>>>> 985cb31 ([.stbl](feat/cli/annotate-pr): regent check --annotate-pr N — post findings as PR review comments)
 }
 
 interface ReviewOptions {
