@@ -6,6 +6,10 @@ project rule (`[.stbl](feat/<area>): <subject>`).
 
 ## Unreleased (post-v0.4.0)
 
+### Added — SARIF scope tagging #107
+
+- Named-scope findings now include `result.properties.scope` in SARIF output.
+
 ### Added — AST-engine follow-up #57 (sub-items 2 + 4)
 
 - **`kind: 'regex'` deprecation warning (#57 sub-item 2).** Loading a
