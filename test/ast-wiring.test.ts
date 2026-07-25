@@ -85,6 +85,10 @@ describe('runner: ast rules', () => {
     expect(f.match.startLine).toBe(3); // 0-based → the `b.Property("Name")` line
     expect(f.match.startColumn).toBeGreaterThan(0); // precise, mid-line
     expect(f.match.matchText).toContain('Property("Name")');
+    expect(f.ast).toEqual({
+      nodeType: 'invocation_expression',
+      captured: { OBJ: 'b', ARG: '"Name"' },
+    });
   });
 });
 

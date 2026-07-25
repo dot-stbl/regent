@@ -162,6 +162,12 @@ function formatFinding(
   }
 
   pushWrapped(lines, finding.message, `  ${c.dim('└─')} `, '  ', columns);
+  if (finding.ast !== undefined && Object.keys(finding.ast.captured).length > 0) {
+    const captures = Object.entries(finding.ast.captured)
+      .map(([name, value]) => `${name} = ${value}`)
+      .join(', ');
+    pushWrapped(lines, captures, `  ${c.dim('Captures:')} `, '  ', columns);
+  }
   if (finding.source) {
     pushWrapped(lines, finding.source, `  ${c.dim('Source:')} `, '  ', columns);
   }

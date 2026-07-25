@@ -28,6 +28,8 @@ export interface AstMatch {
   readonly endLine: number;
   readonly endColumn: number;
   readonly text: string;
+  readonly nodeType: string;
+  readonly captured: Readonly<Record<string, string>>;
 }
 
 let registeredAll = false;
@@ -89,16 +91,49 @@ export function matchRuleOnRoot(
   config: AstGrepConfig,
 ): AstMatch[] {
   const hits = root.findAll(config as never);
+  const metaVariables = collectMetaVariables(config);
   return hits.map((node) => {
     const r = node.range();
+    const getMatch = (node as unknown as {
+      getMatch?: (name: string) => { text(): string } | null;
+    }).getMatch;
+    const captured: Record<string, string> = {};
+    if (typeof getMatch === 'function') {
+      for (const name of metaVariables) {
+        const match = getMatch.call(node, name);
+        if (match !== null) {
+          captured[name] = match.text();
+        }
+      }
+    }
     return {
       startLine: r.start.line,
       startColumn: r.start.column,
       endLine: r.end.line,
       endColumn: r.end.column,
       text: node.text(),
+      nodeType: String(node.kind()),
+      captured,
     };
   });
+}
+
+function collectMetaVariables(config: AstGrepConfig): ReadonlySet<string> {
+  const names = new Set<string>();
+  const pending: unknown[] = [config];
+  while (pending.length > 0) {
+    const value = pending.pop();
+    if (typeof value === 'string') {
+      for (const match of value.matchAll(/\${1,3}([A-Z][A-Z0-9_]*)\b/g)) {
+        names.add(match[1]!);
+      }
+    } else if (Array.isArray(value)) {
+      pending.push(...value);
+    } else if (value !== null && typeof value === 'object') {
+      pending.push(...Object.values(value));
+    }
+  }
+  return names;
 }
 
 /**

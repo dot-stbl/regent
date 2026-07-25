@@ -151,6 +151,18 @@ describe('renderHtml', () => {
     expect(escapeHtml('"hi" & <b>')).toBe('&quot;hi&quot; &amp; &lt;b&gt;');
   });
 
+  it('renders escaped AST node and capture metadata', () => {
+    const finding = baseFinding({
+      ast: { nodeType: 'invocation_expression', captured: { ARG: '"<Name>"' } },
+    });
+    const out = renderHtml(
+      { findings: [finding], rules: [], scannedFiles: 1 },
+      { cwd: '/abs/repo', version: '0.5.2' },
+    );
+    expect(out).toContain('Node: <code>invocation_expression</code>');
+    expect(out).toContain('Captures: <code>ARG = &quot;&lt;Name&gt;&quot;</code>');
+  });
+
   it('handles synthetic findings (empty path, negative line) without crashing', () => {
     const synthetic: Finding = baseFinding({
       path: '',

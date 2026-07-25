@@ -72,6 +72,10 @@ interface SarifResult {
     readonly status?: 'pending' | 'accepted' | 'violation';
     readonly kind?: 'detect' | 'fix';
     readonly fixable?: boolean;
+    readonly ast?: {
+      readonly nodeType: string;
+      readonly captured: Readonly<Record<string, string>>;
+    };
   };
 }
 
@@ -121,11 +125,13 @@ export function renderSarif(
           fixable: kind === 'fix',
           ...(f.review.guidance !== undefined ? { guidance: f.review.guidance } : {}),
           exitBehavior: f.review.exitBehavior,
+          ...(f.ast !== undefined ? { ast: f.ast } : {}),
         }
       : {
           status: f.status,
           ...(kind !== undefined ? { kind } : {}),
           fixable: kind === 'fix',
+          ...(f.ast !== undefined ? { ast: f.ast } : {}),
         };
 
     return {
