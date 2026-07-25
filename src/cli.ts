@@ -49,6 +49,7 @@ import type { AcceptEntry, CompiledRule, Finding, RunResult, RunnerScope, Severi
 import type { CompiledAstRule } from './kinds/ast.js';
 import { renderBanner } from './cli/banner.js';
 import { registerFixCommand } from './cli/fix.js';
+import { runDoctor } from './cli/doctor.js';
 import { checkForUpdateWithTimeout, formatUpdateWarning, runUpdate } from './cli/update.js';
 import { emitModuleTypeHint } from './cli/module-type-check.js';
 import { annotateFindings } from './cli/annotate-pr.js';
@@ -246,6 +247,19 @@ program
   .action(async (_options) => {
     const useColor = shouldUseColor({ color: true } as unknown as CheckOptions);
     const exitCode = await runUpdate(useColor);
+    await flushAndExit(exitCode);
+  });
+
+program
+  .command('doctor')
+  .description('Health check for a regent setup — checklist of green/yellow/red statuses with one-line hints')
+  .option('--no-network', 'skip the registry reachability check')
+  .action(async (options) => {
+    const useColor = shouldUseColor({ color: true } as unknown as CheckOptions);
+    const exitCode = await runDoctor({
+      useColor,
+      network: options.network !== false,
+    });
     await flushAndExit(exitCode);
   });
 
