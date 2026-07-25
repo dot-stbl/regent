@@ -889,8 +889,11 @@ async function runList(options: ListOptions): Promise<void> {
   }
   for (const r of loaded.astRules) {
     const sev = severityColored(r.spec.severity, useColor);
+    const reviewFlag = r.spec.review?.enabled
+      ? ` ${pc.cyan('[review]')}`
+      : '';
     const origin = formatOrigin(r.origin);
-    console.log(`${r.spec.id}\t${sev}\tast\t${origin}`);
+    console.log(`${r.spec.id}\t${sev}${reviewFlag}\tast\t${origin}`);
   }
   for (const r of loaded.transformRules) {
     const sev = severityColored(r.spec.severity, useColor);

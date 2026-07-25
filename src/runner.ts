@@ -15,6 +15,10 @@
  * `status: 'violation'` (subject to `--exit-on`). Review rules produce
  * `status: 'pending'` regardless of accept match.
  *
+ * The AST-kind branch (issue #104) follows the same plumbing as the
+ * detect-path: an AST rule with `review.enabled` produces `pending`
+ * findings that the accept-list can downgrade to `accepted`.
+ *
  * Context window: `match.startLine - contextBuffer` to
  * `match.endLine + contextBuffer` (where `contextBuffer` comes from
  * `RunOptions.contextBuffer`, defaulting to `DEFAULT_CONTEXT_BUFFER`).
@@ -570,6 +574,23 @@ async function scanFileContent(
         for (const am of matchRuleOnRoot(root, astRule.spec.ast)) {
           const startByte = (lineOffsets[am.startLine] ?? 0) + am.startColumn;
           const endByte = (lineOffsets[am.endLine] ?? 0) + am.endColumn;
+
+          // Tri-state review (issue #104): mirror the detect-path status
+          // assignment. AST rules with `review.enabled` produce `pending`
+          // findings unless the accept-list matches (→ `accepted`); non-review
+          // rules fall through to `violation` as before.
+          const isReview = astRule.spec.review?.enabled === true;
+          const exitBehavior = astRule.spec.review?.exitBehavior ?? 'no-fail';
+          const guidance = astRule.spec.review?.guidance;
+          const acceptHit = !isReview
+            ? null
+            : findAcceptMatch(acceptList, astRule.spec.id, file, am.startLine + 1);
+          const status: Finding['status'] = acceptHit
+            ? 'accepted'
+            : isReview
+              ? 'pending'
+              : 'violation';
+
           findings.push({
             ruleId: astRule.spec.id,
             severity: astRule.spec.severity,
@@ -589,7 +610,16 @@ async function scanFileContent(
               nodeType: am.nodeType,
               captured: am.captured,
             },
-            status: 'violation',
+            status,
+            ...(isReview
+              ? {
+                  review: {
+                    ...(guidance !== undefined ? { guidance } : {}),
+                    exitBehavior,
+                  },
+                }
+              : {}),
+            ...(acceptHit ? { acceptedReason: acceptHit.reason } : {}),
           });
         }
       }
