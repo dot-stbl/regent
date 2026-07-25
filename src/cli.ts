@@ -52,6 +52,7 @@ import { checkForUpdateWithTimeout, formatUpdateWarning, runUpdate } from './cli
 import { emitModuleTypeHint } from './cli/module-type-check.js';
 import { registerDescribeCommand } from './cli/describe.js';
 import { loadRulesWithProgress } from './cli/startup-progress.js';
+import { registerDiffCommand } from './cli/diff.js';
 import { loadLlmText } from './llm.js';
 import { routeLlm } from './llm-router.js';
 import { renderDetectSchemaJson, renderFixRuleSchemaJson } from './llm-schema.js';
@@ -234,6 +235,7 @@ program
 
 registerFixCommand(program);
 registerDescribeCommand(program);
+registerDiffCommand(program);
 
 program
   .command('update')
