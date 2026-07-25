@@ -243,6 +243,10 @@ const AstRuleSpecSchema = z
       })
       .strict()
       .optional(),
+    // tri-state review (#104) — mirrors the detect-kind review field. When
+    // `enabled`, the runner tags findings `pending` and applies the same
+    // accept-list plumbing as the detect branch.
+    review: RuleReviewSpecSchema.optional(),
     // ast-grep matcher config (rule + optional constraints). Validated
     // loosely here — ast-grep validates the rule internals at scan time.
     ast: z.object({ rule: z.record(z.string(), z.unknown()) }).passthrough(),

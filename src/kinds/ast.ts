@@ -7,6 +7,7 @@ import type { AstGrepConfig } from '../ast/matcher.js';
 import type {
   NativeToolRequirement,
   RuleOrigin,
+  RuleReviewSpec,
   Severity,
 } from '../types.js';
 
@@ -24,6 +25,14 @@ export interface AstRuleSpec {
   readonly source?: string;
   readonly rationale?: string;
   readonly needsNative?: NativeToolRequirement;
+  /**
+   * Review-mode configuration. Mirrors `RuleSpec.review` for the regex kind
+   * (#57). When `enabled`, each matching finding is tagged `pending` and
+   * surfaced via `regent review` rather than failing CI directly. The runner
+   * applies the same accept-list drop-to-`accepted` plumbing as the detect
+   * path (issue #104 wires the AST branch to the tri-state).
+   */
+  readonly review?: RuleReviewSpec;
   /** The ast-grep matcher (pattern + optional constraints), passed through. */
   readonly ast: AstGrepConfig;
 }
