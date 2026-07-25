@@ -9,7 +9,9 @@
 
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 import { cosmiconfig } from 'cosmiconfig';
 import { load as parse, YAMLException } from 'js-yaml';
@@ -62,8 +64,7 @@ const fileExplorer = cosmiconfig(MODULE_NAME, {
  */
 async function loadJsLike(filepath: string): Promise<RegentConfig | null> {
   try {
-    const url = new URL(`file://${filepath.replace(/\\/g, '/')}`).href;
-    const mod = (await import(url)) as Record<string, unknown>;
+    const mod = await importConfigModule(filepath);
     const candidate = mod['default'] ?? mod['config'] ?? mod[MODULE_NAME];
     if (candidate === undefined || candidate === null) {
       return null;
@@ -74,10 +75,41 @@ async function loadJsLike(filepath: string): Promise<RegentConfig | null> {
     }
     return result.value;
   } catch (err) {
-    if ((err as { code?: string }).code === 'ERR_MODULE_NOT_FOUND') {
+    if ((err as { code?: string }).code === 'ENOENT') {
       return null;
     }
     throw err;
+  }
+}
+
+async function importConfigModule(filepath: string): Promise<Record<string, unknown>> {
+  try {
+    return (await import(pathToFileURL(filepath).href)) as Record<string, unknown>;
+  } catch (error) {
+    if ((error as { code?: string }).code !== 'ERR_MODULE_NOT_FOUND') {
+      throw error;
+    }
+
+    // Bare imports normally resolve from the config file. A config outside the
+    // project tree cannot see Regent's dependencies, so rewrite only packages
+    // that Regent itself can resolve and leave relative imports untouched.
+    const source = await readFile(filepath, 'utf8');
+    const requireFromRegent = createRequire(import.meta.url);
+    const rewritten = source.replace(
+      /\b(from\s+|import\s*\(\s*)(['"])([^'".][^'"]*)\2/g,
+      (match, prefix: string, quote: string, specifier: string) => {
+        try {
+          return `${prefix}${quote}${pathToFileURL(requireFromRegent.resolve(specifier)).href}${quote}`;
+        } catch {
+          return match;
+        }
+      },
+    );
+
+    // The data URL keeps evaluation in-process and makes rewritten package
+    // imports independent of the config's temporary directory.
+    const encoded = Buffer.from(`${rewritten}\n//# sourceURL=${pathToFileURL(filepath).href}`).toString('base64');
+    return (await import(`data:text/javascript;base64,${encoded}`)) as Record<string, unknown>;
   }
 }
 
