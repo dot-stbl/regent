@@ -1397,11 +1397,8 @@ interface CheckOptions {
   stream?: boolean;
   watch?: boolean;
   columns?: number;
-<<<<<<< HEAD
   quiet?: boolean;
-=======
   annotatePr?: number;
->>>>>>> 985cb31 ([.stbl](feat/cli/annotate-pr): regent check --annotate-pr N — post findings as PR review comments)
 }
 
 interface ReviewOptions {
