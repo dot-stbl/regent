@@ -50,6 +50,7 @@ import { renderBanner } from './cli/banner.js';
 import { registerFixCommand } from './cli/fix.js';
 import { checkForUpdateWithTimeout, formatUpdateWarning, runUpdate } from './cli/update.js';
 import { registerDescribeCommand } from './cli/describe.js';
+import { registerMcpCommand } from './cli/mcp.js';
 import { loadLlmText } from './llm.js';
 import { routeLlm } from './llm-router.js';
 import { renderDetectSchemaJson, renderFixRuleSchemaJson } from './llm-schema.js';
@@ -231,6 +232,7 @@ program
 
 registerFixCommand(program);
 registerDescribeCommand(program);
+registerMcpCommand(program);
 
 program
   .command('update')
@@ -1371,6 +1373,7 @@ interface CheckOptions {
   stream?: boolean;
   watch?: boolean;
   columns?: number;
+  quiet?: boolean;
 }
 
 interface ReviewOptions {
