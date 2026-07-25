@@ -33,6 +33,7 @@ export { patterns, type RegexBuilder } from './patterns/index.js';
 export { DiskCache, cacheKeyFor, defaultCachePath, type CacheKey, type CacheEntry, type CacheStore, type CacheStats } from './core/cache.js';
 export { scanAst, type AstGrepConfig, type AstMatch } from './ast/matcher.js';
 export { BUNDLES, resolveBundle, type LanguageBundle } from './bundles/index.js';
+export { runExplain, type ExplainFormat, type ExplainOptions } from './cli/explain.js';
 export type {
   AstRuleSpec,
   CompiledAstRule,

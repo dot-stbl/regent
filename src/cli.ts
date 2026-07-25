@@ -53,6 +53,7 @@ import { emitModuleTypeHint } from './cli/module-type-check.js';
 import { registerDescribeCommand } from './cli/describe.js';
 import { loadRulesWithProgress } from './cli/startup-progress.js';
 import { registerDiffCommand } from './cli/diff.js';
+import { registerExplainCommand } from './cli/explain.js';
 import { loadLlmText } from './llm.js';
 import { routeLlm } from './llm-router.js';
 import { renderDetectSchemaJson, renderFixRuleSchemaJson } from './llm-schema.js';
@@ -201,15 +202,6 @@ program
   });
 
 program
-  .command('explain <rule-id>')
-  .description('Show the source path for a rule and link to its prose')
-  .option('--config <path>', 'config path', 'tools/audit/config.ts')
-  .option('--scope <dir>', 'scope directory', '.')
-  .action(async (ruleId: string, options) => {
-    await runExplain(ruleId, options);
-  });
-
-program
   .command('accept')
   .description('Add a finding to the accept-list (silences pending review)')
   .argument('<rule-id>', 'rule id (e.g. csharp.no-todo-without-owner)')
@@ -236,6 +228,7 @@ program
 registerFixCommand(program);
 registerDescribeCommand(program);
 registerDiffCommand(program);
+registerExplainCommand(program);
 
 program
   .command('update')
@@ -856,35 +849,6 @@ async function runList(options: ListOptions): Promise<void> {
     const sev = severityColored(r.spec.severity, useColor);
     const origin = formatOrigin(r.origin);
     console.log(`${r.spec.id}\t${sev}\ttransform\t${origin}`);
-  }
-}
-
-async function runExplain(ruleId: string, _options: ListOptions): Promise<void> {
-  const cwd = process.cwd();
-  const loaded = await loadRules({ repoRoot: cwd });
-  const rule = loaded.rules.find((r) => r.spec.id === ruleId);
-  if (!rule) {
-    getLogger().error({ ruleId }, 'rule not found');
-    process.exitCode = 1;
-    return;
-  }
-  console.log(`${pc.bold(rule.spec.id)}  ${pc.dim(rule.spec.severity)}`);
-  if (rule.spec.review?.enabled) {
-    console.log(`  ${pc.cyan('review-mode')}  ${rule.spec.review.exitBehavior ?? 'no-fail'}`);
-  }
-  console.log(`  Message: ${rule.spec.message}`);
-  console.log(`  Source:  ${rule.source}`);
-  if (rule.spec.rationale) {
-    console.log(`  Rationale:`);
-    for (const line of rule.spec.rationale.split('\n')) {
-      console.log(`    ${line}`);
-    }
-  }
-  if (rule.spec.review?.guidance) {
-    console.log(`  Review guidance:`);
-    for (const line of rule.spec.review.guidance.split('\n')) {
-      console.log(`    ${line}`);
-    }
   }
 }
 
