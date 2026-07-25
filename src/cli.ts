@@ -56,6 +56,7 @@ import { registerDescribeCommand } from './cli/describe.js';
 import { loadRulesWithProgress } from './cli/startup-progress.js';
 import { registerDiffCommand } from './cli/diff.js';
 import { registerExplainCommand } from './cli/explain.js';
+import { registerStatsCommand } from './cli/stats.js';
 import { loadLlmText } from './llm.js';
 import { routeLlm } from './llm-router.js';
 import { renderDetectSchemaJson, renderFixRuleSchemaJson } from './llm-schema.js';
@@ -236,6 +237,7 @@ registerFixCommand(program);
 registerDescribeCommand(program);
 registerDiffCommand(program);
 registerExplainCommand(program);
+registerStatsCommand(program);
 
 program
   .command('update')
