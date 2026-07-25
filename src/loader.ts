@@ -644,6 +644,15 @@ async function loadAstRuleFilesUnder(
     if (spec === undefined) {
       continue;
     }
+    // The rule's `id` is `spec.id` (the author-declared id). The
+    // filename is provenance only — it may be namespaced by the
+    // project language (`csharp.csharp.async.no-configureawait.lint.ts`)
+    // while the declared id is single-prefixed
+    // (`csharp.async.no-configureawait`). Never derive the id from
+    // the filename: that would surface a doubled-prefix rule in
+    // `regent list` and break SARIF / accept-list lookups that
+    // key on the declared id. Pinned by
+    // test/loader/file-id-from-declared-id.test.ts.
     const baseName = absPath.replace(/\.(lint|rule)\.ts$/, '');
     const siblingMd = `${baseName}.md`;
     const source = spec.source ?? (existsSync(siblingMd) ? siblingMd : absPath);
@@ -781,6 +790,14 @@ async function loadRuleFilesUnder(
     if (spec === undefined) {
       continue;
     }
+    // The rule's `id` is `spec.id` (the author-declared id). The
+    // filename is provenance only — it may be namespaced by the
+    // project language (`csharp.csharp.X.lint.ts`) while the
+    // declared id is single-prefixed (`csharp.X`). Never derive
+    // the id from the filename: that would surface a doubled-
+    // prefix rule in `regent list` and break SARIF / accept-list
+    // lookups that key on the declared id. Pinned by
+    // test/loader/file-id-from-declared-id.test.ts.
     // Validate the optional `fix` field at load time. Same contract
     // as the inline-rules path: safety↔kind invariants + the
     // function-kind `apply` must be a real function.
