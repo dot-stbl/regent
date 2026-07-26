@@ -21,11 +21,13 @@ import {
 } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
 import pc from 'picocolors';
 
 import { defaultCachePath } from '../core/cache.js';
 import { loadConfig } from '../config/index.js';
 import { loadRules } from '../loader.js';
+import { detectProjectMarkers } from '../loader/autodetect.js';
 import { getUpdateInfo } from './update.js';
 
 /** Outcome of a single check. `na` means the check is not applicable
@@ -391,11 +393,346 @@ export async function checkNetwork(network: boolean): Promise<CheckResult> {
   }
 }
 
+// ---------- language-aware tooling checks ----------
+// Checks #10–#17 are gated on `detectProjectMarkers`. `na` is the
+// default when the corresponding marker is absent. The single-
+// source-of-truth check (#17) always runs.
+
+/** True when `cwd` contains a project marker for the given language. */
+function hasMarker(cwd: string, language: 'dotnet' | 'node' | 'rust' | 'go'): boolean {
+  return detectProjectMarkers(cwd).some((m) => m.language === language);
+}
+
+/** First existing regent config file under `cwd`, or null. */
+function findRegentConfig(cwd: string): string | null {
+  for (const name of CONFIG_FILES) {
+    const path = join(cwd, name);
+    if (existsSync(path)) {
+      return path;
+    }
+  }
+  return null;
+}
+
+/** Read a file as utf-8; return null when the file is absent or unreadable. */
+function readText(path: string): string | null {
+  try {
+    return existsSync(path) ? readFileSync(path, 'utf8') : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Names of files in `cwd` ending with `suffix`; empty list on error. */
+function listFilesBySuffix(cwd: string, suffix: string): string[] {
+  try {
+    return readdirSync(cwd, { withFileTypes: true })
+      .filter((e) => e.isFile() && e.name.endsWith(suffix))
+      .map((e) => e.name);
+  } catch {
+    return [];
+  }
+}
+
+/** Pull `excludePaths: ['a', 'b']` literal entries out of a regent config
+ *  source (JS / TS / JSON). Heuristic — doesn't chase imports. */
+function extractExcludePaths(configText: string): string[] {
+  const m = configText.match(/excludePaths\s*:\s*\[([\s\S]*?)\]/);
+  return m?.[1] !== undefined ? captureQuoted(m[1]) : [];
+}
+
+/** Pull `[section]` headers out of an .editorconfig file. */
+function extractEditorConfigSections(ecText: string): string[] {
+  return captureAll(ecText, /^\s*\[([^\]]+)\]/gm);
+}
+
+/** All `m[1]` captures of `re` against `text`, skipping undefined matches. */
+function captureAll(text: string, re: RegExp): string[] {
+  const out: string[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    const captured = m[1];
+    if (captured !== undefined) out.push(captured);
+  }
+  return out;
+}
+
+/** All single- or double-quoted strings inside `text`. */
+function captureQuoted(text: string): string[] {
+  return captureAll(text, /['"]([^'"]+)['"]/g);
+}
+
+/** 10. .NET format excludes — green when every `excludePaths` in
+ *  the regent config has a matching `[section]` in `.editorconfig`.
+ *  Yellow on drift (regent excludes a path the .editorconfig does
+ *  not). `na` when no .NET project. */
+export function checkDotnetFormatExcludesSync(cwd: string): CheckResult {
+  if (!hasMarker(cwd, 'dotnet')) {
+    return { status: 'na', message: 'no .NET project' };
+  }
+  const configPath = findRegentConfig(cwd);
+  if (configPath === null) {
+    return { status: 'na', message: 'no regent config to compare' };
+  }
+  const configText = readText(configPath);
+  if (configText === null) {
+    return { status: 'na', message: 'regent config unreadable' };
+  }
+  const excludes = extractExcludePaths(configText).filter((p) => !p.startsWith('@'));
+  if (excludes.length === 0) {
+    return { status: 'green', message: 'no exclude paths in regent config' };
+  }
+  const ecText = readText(join(cwd, '.editorconfig'));
+  const ecSections = ecText !== null ? extractEditorConfigSections(ecText) : [];
+  const drifted = excludes.filter((p) => {
+    const needle = p.replace(/^\*\*\//, '').replace(/\/\*\*$/, '');
+    return !ecSections.some((s) => s === p || s === needle || s === `**/${needle}/**`);
+  });
+  if (drifted.length === 0) {
+    return { status: 'green', message: `${excludes.length} exclude path(s) covered by .editorconfig` };
+  }
+  return {
+    status: 'yellow',
+    message: `${drifted.length} exclude path(s) missing from .editorconfig: ${drifted.slice(0, 3).join(', ')}${drifted.length > 3 ? '…' : ''}`,
+    hint: 'add matching [section] blocks in .editorconfig so dotnet format and regent agree',
+  };
+}
+
+/** 11. ReSharper / Rider DotSettings. Green when a `*.DotSettings`
+ *  file sits in the cwd; yellow otherwise (the project might still
+ *  be using plain VS / Rider formatting). `na` for non-.NET. */
+export function checkReSharperDotSettings(cwd: string): CheckResult {
+  if (!hasMarker(cwd, 'dotnet')) {
+    return { status: 'na', message: 'no .NET project' };
+  }
+  const entries = listFilesBySuffix(cwd, '.DotSettings');
+  if (entries.length > 0) {
+    return { status: 'green', message: `${entries.length} DotSettings file(s): ${entries.join(', ')}` };
+  }
+  return {
+    status: 'yellow',
+    message: 'no *.DotSettings file in project root',
+    hint: 'commit a <solution>.slnx.DotSettings to share team ReSharper / Rider rules',
+  };
+}
+
+/** 12. Build-hook project — green when no `*.Build.Tools.csproj`
+ *  project lives in the cwd (the format gate has been migrated to
+ *  a standalone SDK or regent config). Yellow when one is still
+ *  present — those projects are being deprecated. `na` for non-.NET. */
+export function checkBuildHookProject(cwd: string): CheckResult {
+  if (!hasMarker(cwd, 'dotnet')) {
+    return { status: 'na', message: 'no .NET project' };
+  }
+  const entries = listFilesBySuffix(cwd, '.Build.Tools.csproj');
+  if (entries.length === 0) {
+    return { status: 'green', message: 'no legacy *.Build.Tools.csproj project' };
+  }
+  return {
+    status: 'yellow',
+    message: `${entries.length} legacy build-hook project(s): ${entries.join(', ')}`,
+    hint: 'migrate the format gate into a standalone build-tools SDK or regent config',
+  };
+}
+
+/** 13. Prettier — green when `prettier` is in `package.json`
+ *  devDependencies. Red when a format script references prettier
+ *  but the dep is missing. Yellow when a format script exists but
+ *  prettier is neither referenced nor installed. `na` when no
+ *  format/lint script is present. */
+export function checkPrettierInstalled(cwd: string): CheckResult {
+  if (!hasMarker(cwd, 'node')) {
+    return { status: 'na', message: 'no node project' };
+  }
+  const text = readText(join(cwd, 'package.json'));
+  if (text === null) {
+    return { status: 'na', message: 'no package.json' };
+  }
+  let pkg: {
+    devDependencies?: Record<string, string>;
+    dependencies?: Record<string, string>;
+    scripts?: Record<string, string>;
+  };
+  try {
+    pkg = JSON.parse(text) as typeof pkg;
+  } catch {
+    return { status: 'na', message: 'package.json not parseable' };
+  }
+  const hasPrettier = pkg.devDependencies?.['prettier'] !== undefined
+    || pkg.dependencies?.['prettier'] !== undefined;
+  if (hasPrettier) {
+    return { status: 'green', message: 'prettier in package.json' };
+  }
+  const scripts = pkg.scripts ?? {};
+  const formatScript = scripts['format'] ?? scripts['lint'] ?? '';
+  if (formatScript.length === 0) {
+    return { status: 'na', message: 'no format/lint script — prettier check irrelevant' };
+  }
+  if (/prettier/i.test(formatScript)) {
+    return {
+      status: 'red',
+      message: 'format script references prettier but the dep is missing',
+      hint: 'add `prettier` to devDependencies or remove the reference',
+    };
+  }
+  return {
+    status: 'yellow',
+    message: 'format/lint script present but prettier is not installed',
+    hint: 'install prettier as a devDependency or remove the script',
+  };
+}
+
+/** 14. tsconfig.json — green when present. Yellow when a Node project
+ *  has no tsconfig.json (regent can still lint but the type-aware
+ *  surface is weaker). `na` for non-Node. */
+export function checkTypeScriptConfig(cwd: string): CheckResult {
+  if (!hasMarker(cwd, 'node')) {
+    return { status: 'na', message: 'no node project' };
+  }
+  if (existsSync(join(cwd, 'tsconfig.json'))) {
+    return { status: 'green', message: 'tsconfig.json present' };
+  }
+  return {
+    status: 'yellow',
+    message: 'no tsconfig.json',
+    hint: 'add a tsconfig.json — a minimal `{ "include": ["src"] }` is enough for regent',
+  };
+}
+
+/** 15. rustfmt — green when `rustfmt.toml` exists or `Cargo.toml`
+ *  carries a `[workspace.metadata.rustfmt]` block. Yellow when
+ *  rustfmt will fall back to defaults (usually fine, but worth a
+ *  hint when the team has agreed-on style overrides). `na` for
+ *  non-Rust. */
+export function checkRustfmtConfig(cwd: string): CheckResult {
+  if (!hasMarker(cwd, 'rust')) {
+    return { status: 'na', message: 'no rust project' };
+  }
+  if (existsSync(join(cwd, 'rustfmt.toml'))) {
+    return { status: 'green', message: 'rustfmt.toml present' };
+  }
+  const cargoText = readText(join(cwd, 'Cargo.toml'));
+  if (cargoText !== null && /\[workspace\.metadata\.rustfmt\]/.test(cargoText)) {
+    return { status: 'green', message: 'rustfmt config in Cargo.toml [workspace.metadata.rustfmt]' };
+  }
+  return {
+    status: 'yellow',
+    message: 'no rustfmt.toml and no [workspace.metadata.rustfmt] in Cargo.toml',
+    hint: 'rustfmt uses defaults; add a rustfmt.toml if your team has agreed-on style overrides',
+  };
+}
+
+/** 16. gofmt on PATH — green when `gofmt` resolves (`where` on
+ *  Windows, `which` elsewhere). Yellow otherwise. `na` for non-Go. */
+export function checkGofmtAvailable(cwd: string): CheckResult {
+  if (!hasMarker(cwd, 'go')) {
+    return { status: 'na', message: 'no go project' };
+  }
+  const cmd = process.platform === 'win32' ? 'where' : 'which';
+  const res = spawnSync(cmd, ['gofmt'], { stdio: 'ignore' });
+  if (res.status === 0) {
+    return { status: 'green', message: 'gofmt on PATH' };
+  }
+  return {
+    status: 'yellow',
+    message: 'gofmt not on PATH',
+    hint: 'install the Go toolchain (gofmt ships with it) — Go projects are expected to be gofmt-clean',
+  };
+}
+
+/** 17. Excludes single-source-of-truth (universal). Collects paths
+ *  from four candidate sources — regent `excludePaths`,
+ *  `.editorconfig [section]` blocks, `EXCLUDE_PATHS=(...)` inside
+ *  `scripts/format.*`, and `<s:String>` entries under
+ *  `EXCLUDE_GENERATED_FILES` in `*.DotSettings`. If a path appears
+ *  in 2+ sources but is missing from a third, that is drift —
+ *  surface it as a soft yellow. Multiple sources are legitimate;
+ *  the disagreement is what we flag. */
+export function checkExcludesSingleSourceOfTruth(cwd: string): CheckResult {
+  const sources = collectExcludeSources(cwd);
+  if (sources.length < 2) {
+    const only = sources[0];
+    return {
+      status: 'na',
+      message: sources.length === 0
+        ? 'no exclude sources found'
+        : `only one exclude source (${only?.name ?? '?'}) — nothing to compare`,
+    };
+  }
+  const drifts: string[] = [];
+  for (const [path, names] of pathAppearances(sources)) {
+    if (names.size < 2) continue;
+    for (const s of sources) {
+      if (!names.has(s.name)) drifts.push(`${path} (missing from ${s.name})`);
+    }
+  }
+  if (drifts.length === 0) {
+    return { status: 'green', message: `${sources.length} exclude sources, no shared-path drift` };
+  }
+  return {
+    status: 'yellow',
+    message: `${drifts.length} drift(s) across ${sources.length} sources: ${drifts.slice(0, 3).join('; ')}${drifts.length > 3 ? '…' : ''}`,
+    hint: 'pick a single source of truth (usually regent config) and reference it from the others',
+  };
+}
+
+interface ExcludeSource {
+  readonly name: string;
+  readonly paths: readonly string[];
+}
+
+function collectExcludeSources(cwd: string): ExcludeSource[] {
+  const out: ExcludeSource[] = [];
+  const configPath = findRegentConfig(cwd);
+  const configText = configPath !== null ? readText(configPath) : null;
+  if (configText !== null) {
+    out.push({ name: 'regent config', paths: extractExcludePaths(configText) });
+  }
+  const ecText = readText(join(cwd, '.editorconfig'));
+  if (ecText !== null) {
+    out.push({ name: '.editorconfig', paths: extractEditorConfigSections(ecText) });
+  }
+  for (const ext of ['sh', 'ps1', 'py', 'js']) {
+    const text = readText(join(cwd, 'scripts', `format.${ext}`));
+    if (text === null) continue;
+    const m = text.match(/EXCLUDE_PATHS\s*=\s*\(([\s\S]*?)\)/);
+    const paths = m?.[1] !== undefined ? captureQuoted(m[1]) : [];
+    if (paths.length > 0) {
+      out.push({ name: `scripts/format.${ext}`, paths });
+      break;
+    }
+  }
+  try {
+    for (const entry of readdirSync(cwd, { withFileTypes: true })) {
+      if (!entry.isFile() || !entry.name.endsWith('.DotSettings')) continue;
+      const text = readText(join(cwd, entry.name));
+      if (text === null) continue;
+      const paths = captureAll(text, /<s:String[^>]*>([^<]+)<\/s:String>/g);
+      if (paths.length > 0) out.push({ name: entry.name, paths });
+    }
+  } catch {
+    /* unreadable cwd — ignore */
+  }
+  return out;
+}
+
+function pathAppearances(sources: readonly ExcludeSource[]): Map<string, Set<string>> {
+  const out = new Map<string, Set<string>>();
+  for (const s of sources) {
+    for (const p of s.paths) {
+      const set = out.get(p) ?? new Set<string>();
+      set.add(s.name);
+      out.set(p, set);
+    }
+  }
+  return out;
+}
+
 // ---------- runner ----------
 
 /** Build a structured report — one entry per check, in the order
- *  defined in the spec. Tests assert against this shape; the CLI
- *  printer uses it to render text. */
+ *  defined in the spec. The first nine are project-agnostic; the
+ *  rest are language-aware tooling checks gated on project markers. */
 export async function runDoctorReport(options: DoctorOptions = {}): Promise<DoctorReport> {
   const cwd = options.cwd ?? process.cwd();
   const network = options.network ?? true;
@@ -409,6 +746,14 @@ export async function runDoctorReport(options: DoctorOptions = {}): Promise<Doct
     ['Regent version', await checkRegentVersion()],
     ['Cache', checkCache(cwd)],
     ['Network', await checkNetwork(network)],
+    ['Dotnet format excludes', checkDotnetFormatExcludesSync(cwd)],
+    ['ReSharper DotSettings', checkReSharperDotSettings(cwd)],
+    ['Build-hook project', checkBuildHookProject(cwd)],
+    ['Prettier installed', checkPrettierInstalled(cwd)],
+    ['TypeScript config', checkTypeScriptConfig(cwd)],
+    ['Rustfmt config', checkRustfmtConfig(cwd)],
+    ['Gofmt available', checkGofmtAvailable(cwd)],
+    ['Excludes single source of truth', checkExcludesSingleSourceOfTruth(cwd)],
   ];
   let green = 0, yellow = 0, red = 0, na = 0;
   for (const [, c] of checks) {

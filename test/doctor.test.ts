@@ -19,14 +19,22 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  checkBuildHookProject,
   checkCache,
   checkConfigFile,
   checkConfigParses,
+  checkDotnetFormatExcludesSync,
+  checkExcludesSingleSourceOfTruth,
+  checkGofmtAvailable,
   checkModuleType,
   checkNetwork,
   checkNodeVersion,
+  checkPrettierInstalled,
   checkProjectRules,
   checkRegentVersion,
+  checkReSharperDotSettings,
+  checkRustfmtConfig,
+  checkTypeScriptConfig,
   checkUserGlobalRules,
   renderDoctor,
   runDoctor,
@@ -238,6 +246,261 @@ describe('checkNetwork', () => {
   });
 });
 
+// ---------- language-aware tooling checks ----------
+
+describe('checkDotnetFormatExcludesSync', () => {
+  it('is na without a .sln marker', () => {
+    const c = checkDotnetFormatExcludesSync(tmpRoot);
+    expect(c.status).toBe('na');
+    expect(c.message).toContain('.NET');
+  });
+
+  it('is green when the regent config has no excludes', () => {
+    writeFileSync(join(tmpRoot, 'MyApp.sln'), '');
+    writeFileSync(
+      join(tmpRoot, '.regentrc.js'),
+      `export default { rules: { detect: [], fix: [], extends: [], disable: [], override: {}, accept: [] } };`,
+    );
+    const c = checkDotnetFormatExcludesSync(tmpRoot);
+    expect(c.status).toBe('green');
+  });
+
+  it('is yellow when regent excludes a path with no .editorconfig section (drift)', () => {
+    writeFileSync(join(tmpRoot, 'MyApp.sln'), '');
+    writeFileSync(
+      join(tmpRoot, '.regentrc.js'),
+      `export default { excludePaths: ['Migrations/**'], rules: { detect: [], fix: [], extends: [], disable: [], override: {}, accept: [] } };`,
+    );
+    // No .editorconfig at all → drift.
+    const c = checkDotnetFormatExcludesSync(tmpRoot);
+    expect(c.status).toBe('yellow');
+    expect(c.message).toContain('Migrations/**');
+    expect(c.hint).toContain('.editorconfig');
+  });
+
+  it('is green when both regent and .editorconfig carry the path', () => {
+    writeFileSync(join(tmpRoot, 'MyApp.sln'), '');
+    writeFileSync(
+      join(tmpRoot, '.regentrc.js'),
+      `export default { excludePaths: ['Migrations/**'], rules: { detect: [], fix: [], extends: [], disable: [], override: {}, accept: [] } };`,
+    );
+    writeFileSync(
+      join(tmpRoot, '.editorconfig'),
+      '[*.cs]\nindent_style = space\n\n[Migrations/**]\nindent_style = space\n',
+    );
+    const c = checkDotnetFormatExcludesSync(tmpRoot);
+    expect(c.status).toBe('green');
+  });
+});
+
+describe('checkReSharperDotSettings', () => {
+  it('is na without a .sln marker', () => {
+    const c = checkReSharperDotSettings(tmpRoot);
+    expect(c.status).toBe('na');
+  });
+
+  it('is green when a DotSettings file is present', () => {
+    writeFileSync(join(tmpRoot, 'MyApp.sln'), '');
+    writeFileSync(join(tmpRoot, 'MyApp.sln.DotSettings'), '<wpf:ResourceDictionary />');
+    const c = checkReSharperDotSettings(tmpRoot);
+    expect(c.status).toBe('green');
+    expect(c.message).toContain('DotSettings');
+  });
+
+  it('is yellow when the .sln exists but no DotSettings', () => {
+    writeFileSync(join(tmpRoot, 'MyApp.sln'), '');
+    const c = checkReSharperDotSettings(tmpRoot);
+    expect(c.status).toBe('yellow');
+    expect(c.hint).toContain('DotSettings');
+  });
+});
+
+describe('checkBuildHookProject', () => {
+  it('is na without a .sln marker', () => {
+    const c = checkBuildHookProject(tmpRoot);
+    expect(c.status).toBe('na');
+  });
+
+  it('is green when no Build.Tools.csproj is present', () => {
+    writeFileSync(join(tmpRoot, 'MyApp.sln'), '');
+    writeFileSync(join(tmpRoot, 'MyApp.Host.csproj'), '<Project />');
+    const c = checkBuildHookProject(tmpRoot);
+    expect(c.status).toBe('green');
+  });
+
+  it('is yellow when a legacy Build.Tools.csproj is still in tree', () => {
+    writeFileSync(join(tmpRoot, 'MyApp.sln'), '');
+    writeFileSync(join(tmpRoot, 'MyApp.Build.Tools.csproj'), '<Project />');
+    const c = checkBuildHookProject(tmpRoot);
+    expect(c.status).toBe('yellow');
+    expect(c.message).toContain('Build.Tools.csproj');
+  });
+});
+
+describe('checkPrettierInstalled', () => {
+  it('is na without a package.json (no node project)', () => {
+    const c = checkPrettierInstalled(tmpRoot);
+    expect(c.status).toBe('na');
+  });
+
+  it('is green when prettier is in devDependencies', () => {
+    writeFileSync(
+      join(tmpRoot, 'package.json'),
+      JSON.stringify({ devDependencies: { prettier: '^3.0.0' } }),
+    );
+    const c = checkPrettierInstalled(tmpRoot);
+    expect(c.status).toBe('green');
+  });
+
+  it('is red when a format script references prettier but the dep is missing', () => {
+    writeFileSync(
+      join(tmpRoot, 'package.json'),
+      JSON.stringify({ scripts: { format: 'prettier --write .' } }),
+    );
+    const c = checkPrettierInstalled(tmpRoot);
+    expect(c.status).toBe('red');
+    expect(c.message).toContain('prettier');
+  });
+
+  it('is yellow when a format script exists but no prettier is installed and no reference', () => {
+    writeFileSync(
+      join(tmpRoot, 'package.json'),
+      JSON.stringify({ scripts: { format: 'eslint --fix' } }),
+    );
+    const c = checkPrettierInstalled(tmpRoot);
+    expect(c.status).toBe('yellow');
+  });
+
+  it('is na when no format/lint script is present (negative case from spec)', () => {
+    writeFileSync(
+      join(tmpRoot, 'package.json'),
+      JSON.stringify({ devDependencies: { eslint: '^9.0.0' } }),
+    );
+    const c = checkPrettierInstalled(tmpRoot);
+    expect(c.status).toBe('na');
+  });
+});
+
+describe('checkTypeScriptConfig', () => {
+  it('is na without a package.json', () => {
+    const c = checkTypeScriptConfig(tmpRoot);
+    expect(c.status).toBe('na');
+  });
+
+  it('is green when tsconfig.json exists', () => {
+    writeFileSync(join(tmpRoot, 'package.json'), '{}');
+    writeFileSync(join(tmpRoot, 'tsconfig.json'), '{"include":["src"]}');
+    const c = checkTypeScriptConfig(tmpRoot);
+    expect(c.status).toBe('green');
+  });
+
+  it('is yellow when package.json exists but tsconfig.json does not', () => {
+    writeFileSync(join(tmpRoot, 'package.json'), '{}');
+    const c = checkTypeScriptConfig(tmpRoot);
+    expect(c.status).toBe('yellow');
+    expect(c.hint).toContain('tsconfig.json');
+  });
+});
+
+describe('checkRustfmtConfig', () => {
+  it('is na without a Cargo.toml', () => {
+    const c = checkRustfmtConfig(tmpRoot);
+    expect(c.status).toBe('na');
+  });
+
+  it('is green when rustfmt.toml exists', () => {
+    writeFileSync(join(tmpRoot, 'Cargo.toml'), '[package]\nname = "x"');
+    writeFileSync(join(tmpRoot, 'rustfmt.toml'), 'max_width = 100');
+    const c = checkRustfmtConfig(tmpRoot);
+    expect(c.status).toBe('green');
+  });
+
+  it('is green when Cargo.toml carries [workspace.metadata.rustfmt]', () => {
+    writeFileSync(
+      join(tmpRoot, 'Cargo.toml'),
+      '[package]\nname = "x"\n\n[workspace.metadata.rustfmt]\nmax_width = 100\n',
+    );
+    const c = checkRustfmtConfig(tmpRoot);
+    expect(c.status).toBe('green');
+  });
+
+  it('is yellow when no rustfmt config is present', () => {
+    writeFileSync(join(tmpRoot, 'Cargo.toml'), '[package]\nname = "x"');
+    const c = checkRustfmtConfig(tmpRoot);
+    expect(c.status).toBe('yellow');
+  });
+});
+
+describe('checkGofmtAvailable', () => {
+  it('is na without a go.mod', () => {
+    const c = checkGofmtAvailable(tmpRoot);
+    expect(c.status).toBe('na');
+  });
+
+  it('is yellow when go.mod exists but gofmt is not on PATH', () => {
+    writeFileSync(join(tmpRoot, 'go.mod'), 'module example.com/x\n\ngo 1.22\n');
+    // Force `which gofmt` to fail: set PATH to an empty directory.
+    const originalPath = process.env['PATH'];
+    const originalPathExt = process.env['Path'];
+    process.env['PATH'] = '';
+    process.env['Path'] = '';
+    try {
+      const c = checkGofmtAvailable(tmpRoot);
+      expect(c.status).toBe('yellow');
+      expect(c.message).toContain('gofmt');
+    } finally {
+      process.env['PATH'] = originalPath;
+      if (originalPathExt !== undefined) process.env['Path'] = originalPathExt;
+      else delete process.env['Path'];
+    }
+  });
+});
+
+describe('checkExcludesSingleSourceOfTruth', () => {
+  it('is na when fewer than two exclude sources exist', () => {
+    writeFileSync(join(tmpRoot, '.regentrc.js'), 'export default {};');
+    const c = checkExcludesSingleSourceOfTruth(tmpRoot);
+    expect(c.status).toBe('na');
+    expect(c.message).toContain('one exclude source');
+  });
+
+  it('is green when two sources share no paths (no drift to detect)', () => {
+    writeFileSync(
+      join(tmpRoot, '.regentrc.js'),
+      `export default { excludePaths: ['**/bin/**'], rules: { detect: [], fix: [], extends: [], disable: [], override: {}, accept: [] } };`,
+    );
+    writeFileSync(
+      join(tmpRoot, '.editorconfig'),
+      '[*.cs]\nindent_style = space\n',
+    );
+    const c = checkExcludesSingleSourceOfTruth(tmpRoot);
+    expect(c.status).toBe('green');
+  });
+
+  it('is yellow when a path appears in regent + .editorconfig but is missing from a third source', () => {
+    writeFileSync(
+      join(tmpRoot, '.regentrc.js'),
+      `export default { excludePaths: ['Migrations/**'], rules: { detect: [], fix: [], extends: [], disable: [], override: {}, accept: [] } };`,
+    );
+    writeFileSync(
+      join(tmpRoot, '.editorconfig'),
+      '[*.cs]\nindent_style = space\n[Migrations/**]\nindent_style = space\n',
+    );
+    mkdirSync(join(tmpRoot, 'scripts'));
+    // scripts/format.sh carries Generated/** but NOT Migrations/** —
+    // so Migrations/** is in regent + .editorconfig (2 sources) but
+    // missing from scripts/format.sh (the 3rd configured source) → drift.
+    writeFileSync(
+      join(tmpRoot, 'scripts', 'format.sh'),
+      `#!/usr/bin/env bash\nEXCLUDE_PATHS=("Generated/**")\n`,
+    );
+    const c = checkExcludesSingleSourceOfTruth(tmpRoot);
+    expect(c.status).toBe('yellow');
+    expect(c.message).toMatch(/drift/i);
+    expect(c.message).toContain('Migrations/**');
+  });
+});
+
 // ---------- runner ----------
 
 describe('statusSymbol', () => {
@@ -276,7 +539,7 @@ describe('renderDoctor', () => {
 });
 
 describe('runDoctorReport', () => {
-  it('returns 9 checks in the documented order', async () => {
+  it('returns 17 checks in the documented order', async () => {
     const report = await runDoctorReport({ cwd: tmpRoot, network: false });
     const names = report.checks.map(([name]) => name);
     expect(names).toEqual([
@@ -289,6 +552,14 @@ describe('runDoctorReport', () => {
       'Regent version',
       'Cache',
       'Network',
+      'Dotnet format excludes',
+      'ReSharper DotSettings',
+      'Build-hook project',
+      'Prettier installed',
+      'TypeScript config',
+      'Rustfmt config',
+      'Gofmt available',
+      'Excludes single source of truth',
     ]);
   });
 
