@@ -1,4 +1,4 @@
-// Per-scope config loading (issue #35).
+// Per-scope config loading (issue #35 + #105).
 //
 // When `-s <name>` is selected, the runner loads config from the
 // scope's root first, falling back to the repo's config if no
@@ -8,17 +8,23 @@
 // `process.cwd()`. Re-anchoring `cwd` to the scope's root makes the
 // scope config the new "project" layer; env / args still trump.
 //
-// The helpers here are for the `regent scopes` command (previewing a
-// scope's resolved config) and for diagnostic / test plumbing — the
-// runner pipeline uses cosmiconfig directly with `cwd = scope.root`.
+// **Issue #105:** a scope may also declare its rule set inline via
+// `extends: [...]` on the scope spec itself. `resolveScopeExtends`
+// turns that array into a synthetic `RegentConfig` whose
+// `rules.extends` matches the array verbatim — the loader's existing
+// `resolveExtendsItem` machinery (paths / globs / npm / inline rule
+// arrays) then resolves each entry at load time. The synthetic layer
+// is the lowest-precedence layer for the scope, so on-disk
+// `.regentrc.*` wins on conflicts (last-wins via `mergeConfigs`).
 
 import { existsSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { loadProjectConfigLayer, loadLocalConfigLayer } from './sources/file.js';
-import type { RegentConfig } from './schema.js';
+import type { RegentConfig, ScopeSpec } from './schema.js';
 import type { ResolvedScope } from './scopes.js';
+import { defaultConfig } from './sources/defaults.js';
 
 export interface ScopeConfigLayer {
   readonly config: RegentConfig;
@@ -26,6 +32,30 @@ export interface ScopeConfigLayer {
   readonly projectPath: string | null;
   /** Absolute path to the loaded `.regentrc.local.*`, or null. */
   readonly localPath: string | null;
+}
+
+/**
+ * Build a synthetic `RegentConfig` whose `rules.extends` mirrors the
+ * scope's inline `extends[]` (issue #105). When this layer is the
+ * lowest-precedence layer for a scope's merge, every entry flows
+ * through the existing loader `resolveExtendsItem` pipeline — paths,
+ * globs, npm package specs, and inline rule arrays are all handled.
+ *
+ * The rest of the returned config is the Zod defaults (`scopes: {}`,
+ * empty rule arrays, etc.) so `mergeConfigs` can fold the layer
+ * without any field touching other layers.
+ */
+export function resolveScopeExtends(
+  extendsSpec: ScopeSpec['extends'],
+): RegentConfig {
+  const base = defaultConfig();
+  return {
+    ...base,
+    rules: {
+      ...base.rules,
+      extends: extendsSpec,
+    },
+  };
 }
 
 /**
@@ -37,13 +67,16 @@ export interface ScopeConfigLayer {
  * config is inherited — exactly the layering the issue requires
  * (`root → scope → local`, where "local" is also scope-anchored).
  *
- * Returns `null` for `projectPath` + `localPath` (and throws) when
- * no scope config exists on disk — callers can choose to treat that
- * as "no scope layer" (the runner does; the scope itself still runs
- * because the root config already carries its `root` path).
+ * Issue #105: a scope may also carry inline `extends: [...]` on the
+ * `ScopeSpec` itself. When present, the extends array becomes the
+ * lowest-precedence layer in the merge (just above the defaults), so
+ * on-disk project/local layers win on conflicts via `mergeConfigs`
+ * last-wins semantics. `ScopeConfigMissingError` only fires when
+ * the scope has NEITHER an on-disk config NOR inline `extends`.
  */
 export async function loadScopeConfigLayer(
   scope: ResolvedScope,
+  scopeSpec?: ScopeSpec,
 ): Promise<ScopeConfigLayer> {
   let projectPath: string | null = null;
   let projectConfig: RegentConfig | null = null;
@@ -75,29 +108,45 @@ export async function loadScopeConfigLayer(
     );
   }
 
-  if (projectConfig === null && localConfig === null) {
+  const extendsLayer = scopeSpec?.extends && scopeSpec.extends.length > 0
+    ? resolveScopeExtends(scopeSpec.extends)
+    : null;
+
+  if (projectConfig === null && localConfig === null && extendsLayer === null) {
     throw new ScopeConfigMissingError(scope);
   }
 
-  // Local overlays project (per-dev > committed). At least one of
-  // them is non-null at this point.
-  const config = projectConfig !== null && localConfig !== null
+  // Layer precedence (low → high):
+  //   scope-extends  <  scope-project  <  scope-local
+  // The existing `mergeConfigs` is too broad here (it also resolves
+  // `@group` references and re-merges `scopes`), so we use a focused
+  // three-way merge that preserves the `regent scopes` preview
+  // contract while honouring last-wins for the on-disk layers.
+  const onDiskLayer = projectConfig !== null && localConfig !== null
     ? overlayLocal(projectConfig, localConfig)
     : (projectConfig ?? (localConfig as RegentConfig));
+
+  const config = extendsLayer !== null
+    ? overlayExtends(extendsLayer, onDiskLayer)
+    : onDiskLayer;
 
   return { config, projectPath, localPath };
 }
 
 /**
- * Sentinel error for "scope declared but no config on disk". The
- * caller catches this when it doesn't want to push an empty layer
- * through the merge pipeline.
+ * Sentinel error for "scope declared but no config on disk AND no
+ * inline `extends`". The caller catches this when it doesn't want to
+ * push an empty layer through the merge pipeline.
+ *
+ * Issue #105: a scope with inline `extends` only — no on-disk
+ * `.regentrc.*` — is no longer an error: the inline extends satisfy
+ * the "scope declares rules" requirement.
  */
 export class ScopeConfigMissingError extends Error {
   readonly scope: ResolvedScope;
   constructor(scope: ResolvedScope) {
     super(
-      `scope '${scope.name}' has no config on disk — declared in root config but no .regentrc.* found under '${scope.relativeRoot}'`,
+      `scope '${scope.name}' has no config on disk — declared in root config but no .regentrc.* found under '${scope.relativeRoot}' (add a .regentrc.json under that root, or set \`extends: [...]\` inline on the scope spec)`,
     );
     this.name = 'ScopeConfigMissingError';
     this.scope = scope;
@@ -131,6 +180,29 @@ function overlayLocal(project: RegentConfig, local: RegentConfig): RegentConfig 
     ...(project.globalRulesPath !== undefined || local.globalRulesPath !== undefined
       ? { globalRulesPath: local.globalRulesPath ?? project.globalRulesPath }
       : {}),
+  };
+}
+
+/**
+ * Fold a scope's inline `extends` synthetic layer (lowest precedence)
+ * with the merged project + local on-disk layer (highest precedence).
+ * Issue #105.
+ *
+ * Only `rules.extends` is concatenated (the inline extends become
+ * the *first* entries, so the on-disk layer can override on id
+ * conflict). All other fields are taken from the on-disk layer
+ * unchanged — inline extends don't carry scalar overrides.
+ */
+function overlayExtends(
+  extendsLayer: RegentConfig,
+  onDiskLayer: RegentConfig,
+): RegentConfig {
+  return {
+    ...onDiskLayer,
+    rules: {
+      ...onDiskLayer.rules,
+      extends: [...extendsLayer.rules.extends, ...onDiskLayer.rules.extends],
+    },
   };
 }
 

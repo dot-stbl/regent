@@ -52,6 +52,7 @@ import { routeLlm } from './llm-router.js';
 import { renderDetectSchemaJson, renderFixRuleSchemaJson } from './llm-schema.js';
 import { loadConfig } from './config/index.js';
 import type { ResolvedConfig } from './config/index.js';
+import type { ScopeSpec } from './config/schema.js';
 import { defaultScopes, parseScopeNames, resolveScopes, type ResolvedScope } from './config/scopes.js';
 import {
   showField,
@@ -520,7 +521,12 @@ async function runCheck(options: CheckOptions): Promise<number> {
   let totalLoadedRules = 0;
 
   for (const scope of scopesToRun) {
-    const loadedRules = await loadRulesForScope(scope, cwd, cliArgsFromOptions(options));
+    const loadedRules = await loadRulesForScope(
+      scope,
+      cwd,
+      cliArgsFromOptions(options),
+      repoConfigResult.config.scopes[scope.name],
+    );
     if (loadedRules === null) {
       // Scope config couldn't load — surface the error and stop
       // (silent fallback would mask typos like a missing -s value
@@ -629,7 +635,12 @@ async function runCheckSingleScope(args: {
   readonly format: string;
 }): Promise<number> {
   const { scope, cwd, options, useColor, hideReview, severity, exitOn, columns, format } = args;
-  const loadedRules = await loadRulesForScope(scope, cwd, cliArgsFromOptions(options));
+  const loadedRules = await loadRulesForScope(
+    scope,
+    cwd,
+    cliArgsFromOptions(options),
+    args.repoConfig.scopes[scope.name],
+  );
   if (loadedRules === null) {
     return 1;
   }
@@ -699,6 +710,7 @@ async function loadRulesForScope(
   scope: ResolvedScope,
   repoRoot: string,
   args: { logLevel?: string; logFormat?: string; color?: boolean; cache?: boolean; contextBuffer?: number; concurrency?: number },
+  scopeSpec?: ScopeSpec,
 ): Promise<Awaited<ReturnType<typeof loadRules>> | null> {
   try {
     return await loadRules({
@@ -707,6 +719,10 @@ async function loadRulesForScope(
       // loader at the repo root, not at scope.root (they're the
       // same, but the type signature distinguishes the two cases).
       ...(scope.name === 'default' ? {} : { scope }),
+      // Issue #105 — forward the scope's `extends[]` so the loader
+      // splices it into the merged scope config before the existing
+      // `resolveExtendsItem` loop runs.
+      ...(scopeSpec !== undefined ? { scopeSpec } : {}),
       args,
     });
   } catch (err) {

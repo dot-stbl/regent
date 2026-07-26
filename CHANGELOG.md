@@ -6,6 +6,34 @@ project rule (`[.stbl](feat/<area>): <subject>`).
 
 ## Unreleased (post-v0.4.0)
 
+### Added — scope `extends` shorthand for inline per-scope config #105
+
+- **Inline `extends: [...]` on a scope spec.** The MVP scope shape
+  (`{ root: string }`) widens to `{ root, extends? }`. Each entry is
+  either a string (path / glob / npm package spec — handled by the
+  existing `resolveExtendsItem` machinery) or an inline rule array
+  (passed through to `rules.detect[]` shape). A scope can now declare
+  its rule set entirely in the root config without dropping a
+  `.regentrc.*` under the subproject's root.
+- **Layer precedence:** inline `extends` is the lowest-precedence
+  slice for the scope; on-disk `.regentrc.{json,...}` and
+  `.regentrc.local.*` win on conflict via the natural last-wins
+  semantics (`mergeConfigs`). Same-id rule collisions resolve to the
+  on-disk layer.
+- **`ScopeConfigMissingError` is relaxed.** The sentinel still fires
+  when a scope has neither on-disk config NOR inline `extends`. With
+  `extends: ['./extra.lint.ts']` (or an inline rule array) alone, the
+  loader now returns a usable scope config — so the CLI can run a
+  monorepo scope from a single-file declaration at the repo root.
+- **Schema change:** `ScopeSpecSchema.strict()` now accepts
+  `extends: [{ ... }]` in addition to `{ root: string }`. Pre-existing
+  `{ root }` entries keep working unchanged (the new field has a
+  default `[]`). One Zod "rejects unknown fields" test flipped to
+  the accepts column.
+- **Backwards compat:** the string-only form
+  `extends: ['@dot-stbl/regent-rules-foo']` keeps working through the
+  existing `plugin-extends` resolver — npm package reuse is free.
+
 ### Added — SARIF scope tagging #107
 
 - Named-scope findings now include `result.properties.scope` in SARIF output.

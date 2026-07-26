@@ -71,6 +71,7 @@ import type {
 import { toV1Json } from '../reporter/fix-schema.js';
 import { flushAndExit } from './exit.js';
 import { loadConfig } from '../config/index.js';
+import type { ScopeSpec } from '../config/schema.js';
 import {
   defaultScopes,
   parseScopeNames,
@@ -238,9 +239,17 @@ export async function runFix({ paths, options }: RunFixArgs): Promise<number> {
   // 1. Load rules + config (anchored at the scope's root).
   let loaded: Awaited<ReturnType<typeof loadRules>>;
   try {
+    // Issue #105 — forward the scope's `extends[]` from the root
+    // config so a scope with inline `extends` only (no on-disk
+    // `.regentrc.*`) still flows rules through the loader.
+    const scopeSpec: ScopeSpec | undefined =
+      targetScope.name === 'default'
+        ? undefined
+        : repoConfigResult.config.scopes[targetScope.name];
     loaded = await loadRules({
       repoRoot: cwd,
       ...(targetScope.name === 'default' ? {} : { scope: targetScope }),
+      ...(scopeSpec !== undefined ? { scopeSpec } : {}),
     });
   } catch (err) {
     return cliError(useColor, `failed to load rules: ${(err as Error).message}`);

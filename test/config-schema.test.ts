@@ -234,7 +234,85 @@ describe('RegentConfigSchema', () => {
 
   it('rejects scopes entries with unknown fields (strict mode)', () => {
     const result = safeParseConfig({
-      scopes: { frontend: { root: 'apps/web', extends: 'whatever' } },
+      scopes: { frontend: { root: 'apps/web', noSuchField: 'whatever' } },
+      rules: { detect: [], fix: [] },
+    });
+    expect(result.ok).toBe(false);
+  });
+
+  // Issue #105 — scope `extends` shorthand for inline per-scope config.
+  it('accepts scope `extends: []` (default — empty array)', () => {
+    const result = safeParseConfig({
+      scopes: { frontend: { root: 'apps/web' } },
+      rules: { detect: [], fix: [] },
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value.scopes['frontend']?.extends).toEqual([]);
+    }
+  });
+
+  it('accepts scope `extends: [<path>]` (string entries)', () => {
+    const result = safeParseConfig({
+      scopes: { frontend: { root: 'apps/web', extends: ['./apps/web/extra.lint.ts'] } },
+      rules: { detect: [], fix: [] },
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value.scopes['frontend']?.extends).toEqual(['./apps/web/extra.lint.ts']);
+    }
+  });
+
+  it('accepts scope `extends: [[<inline rule>]]` (inline rule arrays)', () => {
+    const result = safeParseConfig({
+      scopes: {
+        frontend: {
+          root: 'apps/web',
+          extends: [[
+            {
+              id: 'team.no-todo',
+              severity: 'warning',
+              pattern: '\\bTODO\\b',
+              globs: ['**/*.ts'],
+              message: 'no TODO',
+            },
+          ]],
+        },
+      },
+      rules: { detect: [], fix: [] },
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  it('accepts mixed extends: paths, globs, npm, and inline arrays', () => {
+    const result = safeParseConfig({
+      scopes: {
+        frontend: {
+          root: 'apps/web',
+          extends: [
+            '@dot-stbl/regent-rules-frontend',
+            './apps/web/extra.lint.ts',
+            'apps/web/**/*.lint.ts',
+            [{ id: 'inline', severity: 'error', pattern: 'x', globs: ['**/*'], message: 'm' }],
+          ],
+        },
+      },
+      rules: { detect: [], fix: [] },
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  it('rejects scope `extends` entries that are not strings or arrays', () => {
+    const result = safeParseConfig({
+      scopes: { frontend: { root: 'apps/web', extends: [42] } },
+      rules: { detect: [], fix: [] },
+    });
+    expect(result.ok).toBe(false);
+  });
+
+  it('rejects scope `extends` entries that are empty strings', () => {
+    const result = safeParseConfig({
+      scopes: { frontend: { root: 'apps/web', extends: [''] } },
       rules: { detect: [], fix: [] },
     });
     expect(result.ok).toBe(false);

@@ -332,3 +332,151 @@ describe('regent fix: scope anchoring (issue #35)', () => {
     expect(stdout).toBeTruthy();
   });
 });
+
+describe('regent check: inline scope `extends` (issue #105)', () => {
+  // Inline-extends only — no on-disk `.regentrc.*` in the scope root.
+  // The root config carries the entire ruleset via the scope's
+  // `extends` field.
+  const INLINE_ONLY_SCOPED_CONFIG = (
+    scopes: Record<string, { root: string; extends?: unknown[] }>,
+  ): string => JSON.stringify({
+    scopes,
+  });
+
+  it('runs a scope that has inline `extends` only (no on-disk config)', () => {
+    const repo = pickRepo();
+    writeFileSync(
+      join(repo, '.regentrc.json'),
+      INLINE_ONLY_SCOPED_CONFIG({
+        frontend: {
+          root: 'apps/web',
+          extends: [[
+            {
+              id: 'cli.scopes-extends.frontend-todo',
+              severity: 'error',
+              pattern: 'TODO',
+              globs: ['**/*.txt'],
+              message: 'inline-extends TODO',
+            },
+          ]],
+        },
+      }),
+    );
+
+    const r = runCli(
+      [
+        'check', '--all', '-s', 'frontend',
+        '--format', 'json',
+        '--include-rules', 'cli.scopes-extends.*',
+      ],
+      repo,
+    );
+    expect(r.status).toBe(1);
+    const doc = JSON.parse(r.stdout) as {
+      findings: Array<{ ruleId: string; scope?: string }>;
+    };
+    expect(doc.findings.length).toBeGreaterThanOrEqual(1);
+    for (const f of doc.findings) {
+      expect(f.ruleId).toBe('cli.scopes-extends.frontend-todo');
+      expect(f.scope).toBe('frontend');
+    }
+  });
+
+  it('mixed inline + on-disk: scope has both an on-disk config and inline `extends`', () => {
+    const repo = pickRepo();
+    // Root config declares the scope with inline `extends` for one rule.
+    writeFileSync(
+      join(repo, '.regentrc.json'),
+      JSON.stringify({
+        scopes: {
+          frontend: {
+            root: 'apps/web',
+            extends: [[
+              {
+                id: 'cli.scopes-extends.frontend-inline',
+                severity: 'error',
+                pattern: 'TODO',
+                globs: ['**/*.txt'],
+                message: 'inline',
+              },
+            ]],
+          },
+        },
+      }),
+    );
+    // On-disk project config carries a different rule id.
+    const appsWeb = join(repo, 'apps', 'web');
+    writeFileSync(
+      join(appsWeb, '.regentrc.json'),
+      JSON.stringify({
+        rules: {
+          detect: [{
+            id: 'cli.scopes-extends.frontend-ondisk',
+            severity: 'error',
+            pattern: 'TODO',
+            globs: ['**/*.txt'],
+            message: 'ondisk',
+          }],
+        },
+      }),
+    );
+
+    const r = runCli(
+      [
+        'check', '--all', '-s', 'frontend',
+        '--format', 'json',
+        '--include-rules', 'cli.scopes-extends.*',
+      ],
+      repo,
+    );
+    expect(r.status).toBe(1);
+    const doc = JSON.parse(r.stdout) as {
+      findings: Array<{ ruleId: string; scope?: string }>;
+    };
+    const ids = doc.findings.map((f) => f.ruleId).sort();
+    expect(ids).toEqual([
+      'cli.scopes-extends.frontend-inline',
+      'cli.scopes-extends.frontend-ondisk',
+    ]);
+  });
+
+  it('inline `extends` does NOT trigger ScopeConfigMissingError when no on-disk layer', () => {
+    // Regression guard for the relaxed invariant (#105): a scope
+    // declared with `extends: [..]` but no on-disk `.regentrc.*`
+    // must NOT exit non-zero from the loader pipeline.
+    const repo = pickRepo();
+    writeFileSync(
+      join(repo, '.regentrc.json'),
+      JSON.stringify({
+        scopes: {
+          frontend: {
+            root: 'apps/web',
+            extends: [[
+              {
+                id: 'cli.scopes-extends.frontend-only',
+                severity: 'error',
+                pattern: 'TODO',
+                globs: ['**/*.txt'],
+                message: 'only-inline',
+              },
+            ]],
+          },
+        },
+      }),
+    );
+
+    const r = runCli(
+      [
+        'check', '--all', '-s', 'frontend',
+        '--format', 'json',
+        '--include-rules', 'cli.scopes-extends.*',
+      ],
+      repo,
+    );
+    // exit 1 because the rule fired on the seeded `TODO MARKER` file;
+    // exit 2 / "no config" error would indicate the relaxed invariant
+    // regressed.
+    expect(r.status).toBe(1);
+    expect(r.stderr).not.toMatch(/no config on disk/);
+  });
+});
