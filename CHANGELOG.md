@@ -4,22 +4,71 @@ All notable changes to `@dot-stbl/regent` are recorded here. Dates are
 UTC and approximate. Project tags follow the [commit-format](../../)
 project rule (`[.stbl](feat/<area>): <subject>`).
 
-## Unreleased
+## v0.7.0 — 2026-07-26
 
+### Added — AST engine
+
+- **`needsNative` declaration on AST rules** — rules can declare
+  `needsNative: { tool, analyzer, guidance? }`. Regent emits non-failing
+  `native-tool-required` findings for native semantic analysis and
+  carries the requirement through every reporter.
+  [#143](https://github.com/dot-stbl/regent/pull/143) (closes [#103](https://github.com/dot-stbl/regent/issues/103))
+- **Tri-state review for AST rules** — mirrors the detect-rule
+  tri-state review semantics (accept / reject / violation) for AST
+  findings. The reporter surface was already review-aware; the runner
+  AST branch now assigns the same `status` field.
+  [#138](https://github.com/dot-stbl/regent/pull/138) (closes [#104](https://github.com/dot-stbl/regent/issues/104))
+- **AST findings expose node type + captured fields** — `Finding.ast?`
+  carries `nodeType` (e.g. `invocation_expression`) and `captured`
+  (e.g. `{ OBJ: "builder", ARG: "\"Name\"" }`) sourced from
+  ast-grep's `getMatch()`. Defensive: missing `getMatch()` falls back
+  to no captured fields.
+  [#140](https://github.com/dot-stbl/regent/pull/140) (closes [#109](https://github.com/dot-stbl/regent/issues/109))
+
+### Added — CLI surface
+
+- `--changed-only` (alias for the default `--scope cwd --diff HEAD`
+  behavior) — additive flag, explicit; combines with `--scope <dir>`
+  to restrict the scan to git-changed files within that sub-directory.
+  `--changed-only` + `--all` warns and lets `--all` win.
+  [#150](https://github.com/dot-stbl/regent/pull/150) (re-implements [#106](https://github.com/dot-stbl/regent/issues/106))
 - `regent check --scope <dir>` now narrows the runner's scan root (the
   flag was parsed but ignored in `runCheck` on main; `stats` /
-  `describe` were the only consumers that used it). Combined with the
-  default changed-only scan this restores the #106 intersection
-  (scope × git-changed) against the new architecture.
-  [#148](https://github.com/dot-stbl/regent/issues/148)
-- `regent check --changed-only` / `regent review --changed-only` —
-  explicit, additive flag for the default changed-files-only scan.
-  Combine with `--scope <dir>` to restrict the scan to git-changed
-  files within that sub-directory. `--changed-only` + `--all` warns
-  and lets `--all` win (the long-standing escape hatch).
-- AST rules can declare `needsNative: { tool, analyzer, guidance? }`.
-  Regent emits non-failing `native-tool-required` findings for native
-  semantic analysis and carries the requirement through every reporter.
+  `describe` were the only consumers that used it).
+  [#150](https://github.com/dot-stbl/regent/pull/150)
+- **MCP server** (`regent mcp serve`) — hand-rolled JSON-RPC over
+  stdio, 6 tool surface (read-only v1): `list_rules`, `check`,
+  `explain_rule`, `explain_finding`, `suggest_fix`, `status`. Hand-rolled
+  (no SDK) to avoid the 4 MB weight of `@modelcontextprotocol/sdk`.
+  Per-design: write tools (accept / reject / fix) deferred to a
+  follow-up with its own auth model.
+  [#139](https://github.com/dot-stbl/regent/pull/139) (closes [#132](https://github.com/dot-stbl/regent/issues/132))
+
+### Added — diagnostics
+
+- `regent doctor` language-aware tooling checks — 8 new checks auto-detect
+  the project's languages and run only the relevant ones:
+  - `.NET`: dotnet format excludes sync, ReSharper DotSettings presence,
+    legacy `*.Build.Tools.csproj` detection
+  - `Node`: prettier installed, tsconfig presence
+  - `Rust`: rustfmt config presence
+  - `Go`: gofmt on PATH
+  - **Universal**: excludes single-source-of-truth (drift between
+    regent config, .editorconfig, scripts, DotSettings)
+  [#144](https://github.com/dot-stbl/regent/pull/144)
+
+### Architectural changes (carry-over from v0.6.0 work)
+
+- The named-workspaces `scopes` config block (was on `main-2`) was
+  removed on `main` in favour of inline scope handling via the
+  `--scope <dir>` CLI flag. Issues [#105](https://github.com/dot-stbl/regent/issues/105),
+  [#106](https://github.com/dot-stbl/regent/issues/106),
+  [#107](https://github.com/dot-stbl/regent/issues/107) retired on this
+  architecture change; #106 was re-implemented as `--changed-only`; #105
+  and #107 are still tracked in the follow-up issues
+  ([#146](https://github.com/dot-stbl/regent/issues/146),
+  [#147](https://github.com/dot-stbl/regent/issues/147)) for any future
+  scope-system bring-back.
 
 ## v0.6.0 — 2026-07-25
 
