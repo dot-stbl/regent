@@ -22,6 +22,8 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
+import { VERSION as RUNNER_VERSION } from '../version.js';
+
 const SCHEMA_VERSION = 1;
 const FORMAT = 'json' as const;
 
@@ -103,8 +105,6 @@ export interface CacheStats {
   readonly writes: number;
   readonly sizeBytes: number;
 }
-
-const RUNNER_VERSION = '0.3.0';
 
 // Re-export the header values so tests can construct a valid
 // on-disk cache file (see `test/cache-ttl.test.ts`).
