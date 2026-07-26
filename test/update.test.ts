@@ -55,3 +55,18 @@ it.skip('fetches and caches the latest version with its publish time on a miss',
   expect(fetchMock).toHaveBeenCalledOnce();
   expect(JSON.parse(readFileSync(CACHE_PATH, 'utf8'))).toEqual({ checkedAt: NOW, latest: '0.6.0', publishedAt });
 });
+
+it.each([
+  ['up-to-date', '0.7.0', 0],
+  ['newer release', '0.8.0', 2],
+] as const)('keeps the cache unchanged in check mode when the latest release is %s', async (_scenario, latest, expectedExitCode) => {
+  writeCache({ checkedAt: NOW, latest: '0.6.0', publishedAt: new Date(NOW - 24 * HOUR_MS).toISOString() });
+  const before = readFileSync(CACHE_PATH, 'utf8');
+  mockRegistry(latest, new Date(NOW).toISOString());
+  const { runUpdate } = await import('../src/cli/update.js');
+
+  const exitCode = await runUpdate(false, { check: true });
+
+  expect(exitCode).toBe(expectedExitCode);
+  expect(readFileSync(CACHE_PATH, 'utf8')).toBe(before);
+});

@@ -254,9 +254,9 @@ program
   .command('update')
   .description('Check for a newer regent release and print the upgrade command')
   .option('--check', 'only print version comparison, do not change state')
-  .action(async (_options) => {
-    const useColor = shouldUseColor({ color: true } as unknown as CheckOptions);
-    const exitCode = await runUpdate(useColor);
+  .action(async (options) => {
+    const useColor = shouldUseColor(options);
+    const exitCode = await runUpdate(useColor, { check: options.check === true });
     await flushAndExit(exitCode);
   });
 
