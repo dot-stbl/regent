@@ -35,6 +35,8 @@ kinds:
 - **detect** (`.lint.ts`) — match → report (eslint-style)
 - **fix** (`.fix.ts`) — match → string replace (prettier-lite)
 - **transform** (`.transform.ts`) — programmatic rewrite (v0.3+)
+- **ast** — semantic match via ast-grep, with `needsNative` for type /
+  symbol analysis that defers to a native tool (v0.7+)
 
 `regent` ships **zero rules by default**. Every rule is authored by
 the user or LLM agent. Curated examples live under `examples/<lang>/`
@@ -43,7 +45,36 @@ and are accessed via `regent example copy <lang> <rule-id>`.
 Pattern matching uses **RE2** (linear-time, no ReDoS surface);
 `re2-wasm` enforces RE2 syntax at compile time. Multi-line matches
 are not supported — compose per-line patterns and use `excludeWhen`
-for context.
+for context. AST rules run alongside detect rules and share the
+finding / reporter / tri-state review surface.
+
+## CLI quick map
+
+21 subcommands, no flags hidden. Most users only need `check`, `fix`,
+`list`, `init`, `llm`, and `example copy` to get started — the rest
+are for power users and agent loops.
+
+- `regent check` — scan repo for findings
+- `regent list` — list loaded rules
+- `regent describe` — explain a rule
+- `regent explain` — explain a finding location
+- `regent fix` — apply safe fixes
+- `regent diff` — show new/resolved findings
+- `regent stats` — finding counts + trend
+- `regent doctor` — health check
+- `regent update` — check for newer regent
+- `regent init` — scaffold config
+- `regent example copy` — copy an example rule
+- `regent llm examples` — list example rules
+- `regent config` — show config layers
+- `regent bundles` — list language bundles
+- `regent cache` — manage disk cache
+- `regent benchmark` — benchmark the runner
+- `regent mcp` — start MCP server
+- `regent watch` — re-run on file change (via `check --watch`)
+- `regent review` — list tri-state review candidates
+- `regent accept` — silence a finding
+- `regent reject` — escalate a finding
 
 ## Install
 
@@ -328,13 +359,27 @@ all custom log payloads; pino's redact covers the rest.
 | `src/define-rule.ts` | legacy `defineRule` (alias for `defineDetectRule`) |
 | `src/kinds/detect.ts` | `defineDetectRule` (`.lint.ts`) |
 | `src/kinds/fix.ts` | `defineFixRule` (`.fix.ts`) |
+| `src/kinds/transform.ts` | `defineTransformRule` (`.transform.ts`) |
+| `src/kinds/ast.ts` | `defineAstRule` — ast-grep-based detect (v0.7+) |
+| `src/kinds/parameterized.ts` | parameterized rules (zod param schema) |
+| `src/kinds/format.ts` | format / delegate rules (v0.6+) |
+| `src/kinds/delegate.ts` | workspace-level delegate specs |
+| `src/kinds/process.ts` | process-level rule kinds |
 | `src/kinds/index.ts` | public kind surface |
-| `src/patterns/index.ts` | composable regex builders |
+| `src/patterns/` | composable regex helpers (C# / TS / Python / Java / Go / Rust) |
 | `src/loader.ts` | discovery + applies disable/override/add/accept |
 | `src/runner.ts` | per-file scan via `scanFile` (parallel) |
+| `src/runner/delegate.ts` | workspace-level delegate runner (format-on-check) |
+| `src/ast/matcher.ts` | ast-grep runner (v0.7+) |
+| `src/ast/native-tools.ts` | `needsNative` registry — known tool/analyzer ids |
 | `src/regex.ts` | RE2 wrapper over `re2-wasm` |
 | `src/config/` | layered config: cosmiconfig + Zod + 5 sources |
 | `src/logging/` | pino + safeLog + log levels |
+| `src/watcher.ts` | chokidar wrapper (used by `check --watch`) |
+| `src/version.ts` | single source of truth for the binary's version string |
+| `src/transformer.ts` | transform pipeline orchestration |
+| `src/fixer.ts` | `applyFixes` engine + fixpoint loop |
+| `src/constants.ts` | `DEFAULT_CONTEXT_BUFFER` and shared literals |
 | `src/core/cache.ts` | disk cache (`.regent/cache.json`, atomic, LRU) |
 | `src/core/dag.ts` | cycle detection + topological sort |
 | `src/core/benchmark.ts` | synthetic perf workload + baseline |
@@ -343,11 +388,29 @@ all custom log payloads; pino's redact covers the rest.
 | `src/core/scanner-matcher.ts` | matcher algorithm (TS reference) |
 | `src/reporter/text.ts` | picocolors-coloured, multi-line context |
 | `src/reporter/sarif.ts` | SARIF 2.1 (`region` + `contextRegion`) |
+| `src/reporter/json.ts` | JSON wire format (machine-readable, `scannedFiles` on top level) |
+| `src/reporter/html.ts` | self-contained HTML report (light + dark, no JS) |
 | `src/reporter/review.ts` | pending / accepted markdown + JSON |
-| `src/cli.ts` | commander: `check`, `fix`, `review`, `list`, `init`, `migrate`, `accept`, `reject`, `cache`, `example`, `benchmark`, `llm` |
+| `src/reporter/wrap-ansi.ts` | ANSI-aware line-wrap reporter |
+| `src/reporter/fix-schema.ts` | v1 fix wire-format JSON Schema |
 | `src/llm.ts` | multi-page skill docs loader |
 | `src/llm-router.ts` | `regent llm <subcommand>` router |
+| `src/llm-schema.ts` | JSON Schema emitter for LLM companion assets |
+| `src/bundles/` | language bundles (grammar packs, globs, detect) |
 | `src/examples/index.ts` | shipped-example registry |
+| `src/cli.ts` | commander root: `check`, `fix`, `review`, `list`, `init`, `migrate`, `accept`, `reject`, `cache`, `example`, `benchmark`, `llm`, `bundles`, `config`, `update`, `doctor` |
+| `src/cli/fix.ts` | `regent fix` — applyFixes wiring, `--unsafe` / `--all` |
+| `src/cli/describe.ts` | `regent describe <ruleId>` — show rule + spec |
+| `src/cli/diff.ts` | `regent diff [baseline]` — new/resolved findings |
+| `src/cli/explain.ts` | `regent explain <ruleId\|file:line:col>` |
+| `src/cli/mcp.ts` | `regent mcp serve` — JSON-RPC over stdio (6 tools) |
+| `src/cli/stats.ts` | `regent stats` — by-severity/rule/file + 5-run trend |
+| `src/cli/update.ts` | `regent update` — release-check with 24h cache |
+| `src/cli/doctor.ts` | `regent doctor` — 9-point health check |
+| `src/cli/annotate-pr.ts` | `regent check --annotate-pr <num>` (gh-api dedupe) |
+| `src/cli/module-type-check.ts` | missing `"type": "module"` startup hint |
+| `src/cli/startup-progress.ts` | `regent: loaded N rules in X.XXs` line (≥500ms) |
+| `src/cli/banner.ts` | pre-help banner |
 | `assets/llm/` | agent skill contract (markdown) |
 | `examples/<lang>/*.lint.ts` | shipped rule packs (NOT auto-loaded) |
 
@@ -368,12 +431,12 @@ all custom log payloads; pino's redact covers the rest.
 
 | | |
 |---|---|
-| Stage | v0.4.0 in development (fix-mode epic shipped) |
-| Version | 0.4.0 |
+| Stage | v0.7.0 — AST engine, MCP, `regent doctor`; v0.8.0 in development |
+| Version | 0.7.0 |
 | License | MIT |
 | Runtime | Node ≥ 20 (Bun recommended for dev) |
 | Regex | `re2-wasm` (linear-time, no ReDoS) |
-| Test runner | vitest (555/555 as of last sync) |
+| Test runner | bun test (825 pass / 4 skip / 1 pre-existing Windows-only plugin-load fail, 830 total) |
 | CI | GitHub Actions (typecheck + lint + test + benchmark gate) |
 | Pattern helpers | 34 across C# / TypeScript / Python / Java / Go / Rust (see [`regent llm authoring detect`](assets/llm/authoring/detect.md#pre-built-composable-patterns)) |
 
