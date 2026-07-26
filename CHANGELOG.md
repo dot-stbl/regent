@@ -4,6 +4,29 @@ All notable changes to `@dot-stbl/regent` are recorded here. Dates are
 UTC and approximate. Project tags follow the [commit-format](../../)
 project rule (`[.stbl](feat/<area>): <subject>`).
 
+## v0.7.1 — 2026-07-26
+
+Patch release. Three small fixes discovered via the v0.7.0 audit.
+
+### Fixed
+
+- **`--version` flag, SARIF `tool.driver.version`, and cache header
+  `runnerVersion` were hardcoded to `0.3.0`** (now correctly read from
+  `package.json` via `src/version.ts`). Every cache file produced by
+  v0.3.0–v0.6.0 advertises `runnerVersion: 0.3.0`; v0.7.1+ writes the
+  real version. [#152](https://github.com/dot-stbl/regent/pull/152)
+- **`regent update --check` was a dead flag** — the action body ignored
+  the option and always triggered a cache write. Now honours `--check`:
+  read-only version comparison, no cache file written, exit code 0
+  (up-to-date) or 2 (newer available).
+  [#153](https://github.com/dot-stbl/regent/pull/153)
+
+### Documentation
+
+- README refreshed to v0.7.0: status table, 21-subcommand
+  quick map, architecture table expanded.
+  [#151](https://github.com/dot-stbl/regent/pull/151)
+
 ## v0.7.0 — 2026-07-26
 
 ### Added — AST engine
