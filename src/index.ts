@@ -54,6 +54,7 @@ export type {
   RuleFixContext,
   RuleFixEdit,
   Severity,
+  NativeToolRequirement,
   AcceptEntry,
   ConfigLayer,
   CompiledRule,

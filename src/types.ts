@@ -18,6 +18,12 @@
 /** Severity classification for a rule's findings. */
 export type Severity = 'error' | 'warning' | 'suggestion';
 
+export interface NativeToolRequirement {
+  readonly tool: string;
+  readonly analyzer: string;
+  readonly guidance?: string;
+}
+
 /**
  * A single rule. Patterns use RE2 syntax — see
  * https://github.com/GoogleCloudPlatform/re2/blob/master/doc/syntax.txt.
@@ -374,7 +380,11 @@ export interface ContextWindow {
  * - `violation`: review rule with `exitBehavior: 'unreviewed-fails'` and no
  *   accept match, OR non-review rule with severity failing CI.
  */
-export type FindingStatus = 'pending' | 'accepted' | 'violation';
+export type FindingStatus =
+  | 'pending'
+  | 'accepted'
+  | 'violation'
+  | 'native-tool-required';
 
 /**
  * Final finding — a single match surfaced to a reporter.
@@ -409,6 +419,8 @@ export interface Finding {
 
   /** Reason captured if status === 'accepted' (audit trail). */
   readonly acceptedReason?: string;
+
+  readonly needsNative?: NativeToolRequirement;
 }
 
 /** What the runner is asked to scan. */

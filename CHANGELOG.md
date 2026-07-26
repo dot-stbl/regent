@@ -4,6 +4,12 @@ All notable changes to `@dot-stbl/regent` are recorded here. Dates are
 UTC and approximate. Project tags follow the [commit-format](../../)
 project rule (`[.stbl](feat/<area>): <subject>`).
 
+## Unreleased
+
+- AST rules can declare `needsNative: { tool, analyzer, guidance? }`.
+  Regent emits non-failing `native-tool-required` findings for native
+  semantic analysis and carries the requirement through every reporter.
+
 ## v0.6.0 — 2026-07-25
 
 ### Added — subcommands

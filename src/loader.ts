@@ -23,6 +23,7 @@ import { isAbsolute, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { loadConfig, type CliArgs, type ResolvedConfig } from './config/index.js';
+import { validateNeedsNative } from './ast/native-tools.js';
 import type { z } from 'zod';
 
 import type { FixRuleSpec } from './config/schema.js';
@@ -296,6 +297,7 @@ export async function loadRules(options: LoaderOptions): Promise<LoaderRuleSet> 
   }
   for (const raw of config.rules.ast) {
     const spec = raw as unknown as AstRuleSpec;
+    assertNeedsNative(spec);
     if (astSeen.has(spec.id) || config.rules.disable.includes(spec.id)) {
       continue;
     }
@@ -644,6 +646,7 @@ async function loadAstRuleFilesUnder(
     if (spec === undefined) {
       continue;
     }
+    assertNeedsNative(spec);
     // The rule's `id` is `spec.id` (the author-declared id). The
     // filename is provenance only — it may be namespaced by the
     // project language (`csharp.csharp.async.no-configureawait.lint.ts`)
@@ -767,6 +770,16 @@ function assertFixSafety(fix: RuleFixSpec): void {
   const result = validateFixSpec(fix);
   if (result !== true) {
     throw new Error(`fix validation failed for rule: ${result}`);
+  }
+}
+
+function assertNeedsNative(spec: AstRuleSpec): void {
+  if (spec.needsNative === undefined) {
+    return;
+  }
+  const error = validateNeedsNative(spec.needsNative);
+  if (error !== null) {
+    throw new Error(`needsNative validation failed for rule '${spec.id}': ${error}`);
   }
 }
 
