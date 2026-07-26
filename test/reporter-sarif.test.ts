@@ -114,4 +114,23 @@ describe('renderSarif', () => {
     const parsed = JSON.parse(json);
     expect(parsed.runs[0].results[0].level).toBe('note');
   });
+
+  it('includes scope in result properties for scoped findings', () => {
+    const scoped: Finding = { ...finding, scope: 'frontend' };
+    const parsed = JSON.parse(renderSarif([scoped], [rule], { cwd: '/abs' }));
+    expect(parsed.runs[0].results[0].properties.scope).toBe('frontend');
+  });
+
+  it('omits scope from result properties for unscoped findings', () => {
+    const parsed = JSON.parse(renderSarif([finding], [rule], { cwd: '/abs' }));
+    const properties = parsed.runs[0].results[0].properties;
+    expect(properties.scope).toBeUndefined();
+    expect(Object.keys(properties)).not.toContain('scope');
+  });
+
+  it('omits the implicit default scope from result properties', () => {
+    const implicit: Finding = { ...finding, scope: 'default' };
+    const parsed = JSON.parse(renderSarif([implicit], [rule], { cwd: '/abs' }));
+    expect(parsed.runs[0].results[0].properties.scope).toBeUndefined();
+  });
 });

@@ -72,6 +72,7 @@ interface SarifResult {
     readonly status?: 'pending' | 'accepted' | 'violation';
     readonly kind?: 'detect' | 'fix';
     readonly fixable?: boolean;
+    readonly scope?: string;
   };
 }
 
@@ -119,6 +120,9 @@ export function renderSarif(
           status: f.status,
           ...(kind !== undefined ? { kind } : {}),
           fixable: kind === 'fix',
+          ...(f.scope !== undefined && f.scope !== 'default'
+            ? { scope: f.scope }
+            : {}),
           ...(f.review.guidance !== undefined ? { guidance: f.review.guidance } : {}),
           exitBehavior: f.review.exitBehavior,
         }
@@ -126,6 +130,9 @@ export function renderSarif(
           status: f.status,
           ...(kind !== undefined ? { kind } : {}),
           fixable: kind === 'fix',
+          ...(f.scope !== undefined && f.scope !== 'default'
+            ? { scope: f.scope }
+            : {}),
         };
 
     return {
