@@ -72,8 +72,7 @@ import {
 } from './config/inspect.js';
 import { createLogger, flushAndExit, type Logger } from './logging/index.js';
 import { isLogLevel, type LogLevel } from './logging/levels.js';
-
-const VERSION = '0.3.0';
+import { VERSION } from './version.js';
 
 const program = new Command();
 

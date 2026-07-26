@@ -19,6 +19,7 @@
 
 import { relative } from 'node:path';
 
+import { VERSION } from '../version.js';
 import type {
   CompiledRule,
   Finding,
@@ -182,7 +183,7 @@ export function renderSarif(
         tool: {
           driver: {
             name: '@dot-stbl/regent',
-            version: '0.3.0',
+            version: VERSION,
             informationUri: 'https://github.com/dot-stbl/regent',
             rules: reportingDescriptors,
           },
