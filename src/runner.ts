@@ -281,7 +281,12 @@ async function collectFiles(scope: RunnerScope): Promise<string[]> {
   const { cwd } = scope;
 
   if (scope.changedOnly) {
-    return await collectChangedFiles(cwd, scope.diffBase);
+    const changed = await collectChangedFiles(cwd, scope.diffBase);
+    // `collectChangedFiles` anchors paths at the git repo root so the
+    // caller can pass any sub-directory as `scope.cwd` (e.g. via
+    // `--scope <dir>`). When the scope is narrower than the repo
+    // root, drop anything outside the scope.
+    return filterToScope(changed, cwd);
   }
 
   const { glob } = await import('tinyglobby');
@@ -296,6 +301,11 @@ async function collectFiles(scope: RunnerScope): Promise<string[]> {
 async function collectChangedFiles(cwd: string, baseRef: string): Promise<string[]> {
   try {
     const git = simpleGit({ baseDir: cwd });
+    // Resolve the repo root so paths stay anchored there even when
+    // the caller passes a sub-directory as `cwd` (e.g. `--scope
+    // apps/web`). Without this the runner would double-prefix the
+    // scope path on every changed file.
+    const repoRoot = (await git.revparse(['--show-toplevel'])).trim();
     const diff = await git.diff([`${baseRef}..HEAD`, '--name-only', '--no-renames']);
     const staged = await git.diff(['--cached', '--name-only', '--no-renames']);
     const unstaged = await git.diff(['--name-only', '--no-renames']);
@@ -303,13 +313,33 @@ async function collectChangedFiles(cwd: string, baseRef: string): Promise<string
     const all = new Set<string>(
       [...diff.split('\n'), ...staged.split('\n'), ...unstaged.split('\n')]
         .filter((line) => line.trim() !== '')
-        .map((line) => join(cwd, line)),
+        .map((line) => join(repoRoot, line)),
     );
 
     return [...all];
   } catch {
     return [];
   }
+}
+
+/**
+ * Restrict an absolute file list to files inside `scopeCwd`. The
+ * `collectChangedFiles` collector returns paths anchored at the git
+ * repo root; when the caller narrows the scope (e.g. `--scope apps/web`)
+ * we drop anything outside `scopeCwd`. Path comparison uses the
+ * platform separator so Windows + POSIX both work.
+ */
+function filterToScope(files: readonly string[], scopeCwd: string): string[] {
+  const normalizedScope = scopeCwd.replace(/\\/g, '/').replace(/\/+$/, '');
+  const isRoot = normalizedScope === '' || normalizedScope === '.';
+  if (isRoot) {
+    return [...files];
+  }
+  return files.filter((file) => {
+    const normalized = file.replace(/\\/g, '/');
+    return normalized === normalizedScope
+      || normalized.startsWith(`${normalizedScope}/`);
+  });
 }
 
 function matchesScopePattern(spec: { readonly globs: readonly string[] }, file: string): boolean {

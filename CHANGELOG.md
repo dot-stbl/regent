@@ -6,6 +6,17 @@ project rule (`[.stbl](feat/<area>): <subject>`).
 
 ## Unreleased
 
+- `regent check --scope <dir>` now narrows the runner's scan root (the
+  flag was parsed but ignored in `runCheck` on main; `stats` /
+  `describe` were the only consumers that used it). Combined with the
+  default changed-only scan this restores the #106 intersection
+  (scope × git-changed) against the new architecture.
+  [#148](https://github.com/dot-stbl/regent/issues/148)
+- `regent check --changed-only` / `regent review --changed-only` —
+  explicit, additive flag for the default changed-files-only scan.
+  Combine with `--scope <dir>` to restrict the scan to git-changed
+  files within that sub-directory. `--changed-only` + `--all` warns
+  and lets `--all` win (the long-standing escape hatch).
 - AST rules can declare `needsNative: { tool, analyzer, guidance? }`.
   Regent emits non-failing `native-tool-required` findings for native
   semantic analysis and carries the requirement through every reporter.
