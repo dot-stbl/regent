@@ -115,6 +115,10 @@ program
   .option('--config <path>', 'config path', 'tools/audit/config.ts')
   .option('--scope <dir>', 'scope directory', '.')
   .option('--all', 'scan all files (not just git-changed)')
+  .option(
+    '--changed-only',
+    'restrict scan to git-changed files within the scope (default when --all is absent; warns + falls back to --all when both flags are set)',
+  )
   .option('--diff-base <ref>', 'git diff base', 'HEAD')
   .option('--format <fmt>', 'output format: text|json|sarif|html|both', 'text')
   .option('--out <file>', 'write to file instead of stdout')
@@ -152,6 +156,10 @@ program
   .option('--config <path>', 'config path', 'tools/audit/config.ts')
   .option('--scope <dir>', 'scope directory', '.')
   .option('--all', 'scan all files')
+  .option(
+    '--changed-only',
+    'restrict scan to git-changed files within the scope (default when --all is absent; warns + falls back to --all when both flags are set)',
+  )
   .option('--format <fmt>', 'markdown|json', 'markdown')
   .option('--include-accepted', 'also surface accepted findings (audit)')
   .action(async (options) => {
@@ -403,9 +411,29 @@ program
 
 async function runCheck(options: CheckOptions): Promise<number> {
   const cwd = process.cwd();
+  // `--scope <dir>` narrows the runner's scan root while the config
+  // still loads from the repo root. Resolves relative paths against
+  // `process.cwd()` so `--scope apps/web` is repo-relative.
+  const scopeCwd = options.scope ? resolve(cwd, options.scope) : cwd;
   const useColor = shouldUseColor(options);
   const hideReview = options.review === false;
   const columns = resolveColumns(options);
+
+  // `--changed-only` + `--all` are contradictory — warn and let
+  // `--all` win (it was the long-standing escape hatch).
+  if (options.changedOnly === true && options.all) {
+    getLogger().warn(
+      {},
+      '--changed-only conflicts with --all — falling back to --all (scanning every file)',
+    );
+  }
+
+  // The runner's `changedOnly` is `true` whenever the user did NOT
+  // ask for every file: the default behavior, OR `--changed-only`
+  // set explicitly with no `--all` override.
+  const scopeChangedOnly = options.all
+    ? false
+    : options.changedOnly === true || !options.all;
 
   // Non-blocking update hint — fires the registry lookup in parallel
   // with the rule load, prints to stderr (one dim line) if a newer
@@ -468,7 +496,7 @@ async function runCheck(options: CheckOptions): Promise<number> {
   }
 
   const scope: RunnerScope = {
-    cwd,
+    cwd: scopeCwd,
     includeGlobs: ['**/*'],
     excludeGlobs: [
       '**/node_modules/**',
@@ -477,7 +505,7 @@ async function runCheck(options: CheckOptions): Promise<number> {
       '**/obj/**',
       '**/.git/**',
     ],
-    changedOnly: !options.all,
+    changedOnly: scopeChangedOnly,
     diffBase: options.diffBase as string,
   };
 
@@ -811,13 +839,27 @@ function computeExitCode(findings: readonly Finding[], exitOn: Severity): number
 
 async function runReview(options: ReviewOptions): Promise<number> {
   const cwd = process.cwd();
+  // `--scope <dir>` narrows the runner's scan root while the config
+  // still loads from the repo root (see `runCheck` for the rationale).
+  const scopeCwd = options.scope ? resolve(cwd, options.scope) : cwd;
+
+  if (options.changedOnly === true && options.all) {
+    getLogger().warn(
+      {},
+      '--changed-only conflicts with --all — falling back to --all (scanning every file)',
+    );
+  }
+  const scopeChangedOnly = options.all
+    ? false
+    : options.changedOnly === true || !options.all;
+
   const loaded = await loadRules({
     repoRoot: cwd,
     args: cliArgsFromOptions({}),
   });
 
   const scope: RunnerScope = {
-    cwd,
+    cwd: scopeCwd,
     includeGlobs: ['**/*'],
     excludeGlobs: [
       '**/node_modules/**',
@@ -826,7 +868,7 @@ async function runReview(options: ReviewOptions): Promise<number> {
       '**/obj/**',
       '**/.git/**',
     ],
-    changedOnly: !options.all,
+    changedOnly: scopeChangedOnly,
     diffBase: 'HEAD',
   };
 
@@ -1386,6 +1428,7 @@ interface CheckOptions {
   config?: string;
   scope?: string;
   all?: string;
+  changedOnly?: boolean;
   diffBase?: string;
   format?: string;
   out?: string;
@@ -1407,6 +1450,7 @@ interface ReviewOptions {
   config?: string;
   scope?: string;
   all?: boolean;
+  changedOnly?: boolean;
   format?: string;
   includeAccepted?: boolean;
 }
