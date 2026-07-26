@@ -246,7 +246,10 @@ function cacheTtlMs(cached: CachedResult, now: number): number {
  * Compute current vs latest. Cache hit returns immediately if fresh;
  * otherwise (or on cache miss) hits the network once.
  */
-export async function getUpdateInfo(forceRefresh = false): Promise<UpdateInfo | null> {
+export async function getUpdateInfo(
+  forceRefresh = false,
+  options: { readonly writeCache?: boolean } = {},
+): Promise<UpdateInfo | null> {
   const current = readInstalledVersion();
   if (!forceRefresh) {
     const cached = readCache();
@@ -263,7 +266,9 @@ export async function getUpdateInfo(forceRefresh = false): Promise<UpdateInfo | 
   if (release === null) {
     return null;
   }
-  writeCache(release);
+  if (options.writeCache !== false) {
+    writeCache(release);
+  }
   return {
     current,
     latest: release.latest,
@@ -363,9 +368,13 @@ export function formatUpdateWarning(info: UpdateInfo, useColor: boolean): string
  * Explicit `regent update` handler. Always prints, even when up-to-date.
  * Returns the process exit code (0 = up-to-date, 1 = error, 2 = newer available).
  */
-export async function runUpdate(useColor: boolean): Promise<number> {
+export async function runUpdate(
+  useColor: boolean,
+  options: { readonly check?: boolean } = {},
+): Promise<number> {
   const c = useColor ? pc : { dim: (s: string): string => s, cyan: (s: string): string => s, bold: (s: string): string => s, green: (s: string): string => s, yellow: (s: string): string => s, red: (s: string): string => s };
-  const info = await getUpdateInfo(true);
+  const checkOnly = options.check === true;
+  const info = await getUpdateInfo(true, { writeCache: !checkOnly });
   if (info === null) {
     process.stderr.write(`${c.red('regent:')} failed to reach the npm registry (${process.env['STBL_REGENT_REGISTRY'] ?? REGISTRY_URL_DEFAULT})\n`);
     process.stderr.write(`${c.dim('hint:')} check your network or set STBL_REGENT_REGISTRY=<mirror>\n`);
@@ -375,9 +384,12 @@ export async function runUpdate(useColor: boolean): Promise<number> {
     process.stdout.write(`${c.green('✓')} regent ${info.current} is up to date (latest: ${info.latest})\n`);
     return 0;
   }
+  process.stdout.write(`${c.yellow('!')} regent ${info.current} → ${c.cyan(info.latest)} available\n`);
+  if (checkOnly) {
+    return 2;
+  }
   const pm = detectPackageManager();
   const cmd = upgradeCommand(pm);
-  process.stdout.write(`${c.yellow('!')} regent ${info.current} → ${c.cyan(info.latest)} available\n`);
   process.stdout.write(`${c.dim('package manager:')} ${pm}\n`);
   process.stdout.write(`${c.dim('upgrade:')}        ${c.bold(cmd)}\n`);
   return 2;
