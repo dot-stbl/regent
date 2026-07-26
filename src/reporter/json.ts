@@ -46,6 +46,10 @@ export interface JsonFinding {
   readonly message: string;
   readonly source: string;
   readonly status: 'violation' | 'pending' | 'accepted';
+  readonly ast?: {
+    readonly nodeType: string;
+    readonly captured: Readonly<Record<string, string>>;
+  };
 }
 
 export interface JsonRuleDescriptor {
@@ -97,6 +101,7 @@ export function renderJson(
     message: f.message,
     source: f.source,
     status: f.status,
+    ...(f.ast !== undefined ? { ast: f.ast } : {}),
   }));
 
   // The CLI uses `RunResult.scannedFiles` from the runner output; the

@@ -213,6 +213,14 @@ function renderFindingRows(finding: Finding, cwd: string): string[] {
   const location = formatLocation(finding, cwd);
   const ruleId = escapeHtml(finding.ruleId);
   const message = escapeHtml(finding.message);
+  const astMetadata = finding.ast === undefined
+    ? ''
+    : `<br><span class="ast">Node: <code>${escapeHtml(finding.ast.nodeType)}</code>`
+      + (Object.keys(finding.ast.captured).length === 0
+        ? '</span>'
+        : ` · Captures: <code>${escapeHtml(Object.entries(finding.ast.captured)
+            .map(([name, value]) => `${name} = ${value}`)
+            .join(', '))}</code></span>`);
   // Defensive: a finding without a `status` (e.g. a synthetic test
   // fixture) renders as if it were a violation. Same default the
   // text reporter uses for non-review rules.
@@ -232,7 +240,7 @@ function renderFindingRows(finding: Finding, cwd: string): string[] {
     `<td class="loc">${location || '<span class="synthetic">synthetic</span>'}</td>`,
     `<td><span class="${sevClass}">${escapeHtml(sevLabel)}</span></td>`,
     `<td><code class="rule">${ruleId}</code></td>`,
-    `<td class="message">${message}</td>`,
+    `<td class="message">${message}${astMetadata}</td>`,
     '</tr>',
   ];
 

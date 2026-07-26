@@ -111,6 +111,16 @@ describe('renderJson', () => {
     expect(jsonFinding.message).toBe('#region forbidden');
     expect(jsonFinding.source).toBe('code-shape.md#no-region');
     expect(jsonFinding.status).toBe('violation');
+    expect('ast' in jsonFinding).toBe(false);
+  });
+
+  it('preserves AST metadata when present', () => {
+    const astFinding: Finding = {
+      ...finding,
+      ast: { nodeType: 'invocation_expression', captured: { ARG: '"Name"' } },
+    };
+    const result = renderJson([astFinding], [rule], { cwd: '/abs' });
+    expect(result.findings[0]!.ast).toEqual(astFinding.ast);
   });
 
   it('emits forward-slash + repo-relative paths on Windows input', () => {

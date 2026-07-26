@@ -81,6 +81,15 @@ describe('renderSarif', () => {
     expect(result.locations[0].physicalLocation.region.startLine).toBe(5);
   });
 
+  it('emits AST metadata under result properties', () => {
+    const astFinding: Finding = {
+      ...finding,
+      ast: { nodeType: 'invocation_expression', captured: { ARG: '"Name"' } },
+    };
+    const parsed = JSON.parse(renderSarif([astFinding], [rule], { cwd: '/abs' }));
+    expect(parsed.runs[0].results[0].properties.ast).toEqual(astFinding.ast);
+  });
+
   it('produces a contextRegion with snippet', () => {
     const json = renderSarif([finding], [rule], { cwd: '/abs' });
     const parsed = JSON.parse(json);

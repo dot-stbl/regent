@@ -58,6 +58,14 @@ describe('renderText', () => {
     expect(out).toContain('code-shape.md#no-private-business-logic');
   });
 
+  it('renders AST captures', () => {
+    const finding = baseFinding({
+      ast: { nodeType: 'invocation_expression', captured: { ARG: '"Name"' } },
+    });
+    const out = renderText([finding], { cwd: '/abs/path', useColor: false });
+    expect(out).toContain('Captures: ARG = "Name"');
+  });
+
   it('renders multi-line context with gutter alignment', () => {
     const out = renderText([baseFinding()], { cwd: '/abs/path', useColor: false });
     expect(out).toContain('│ ');          // gutter separator

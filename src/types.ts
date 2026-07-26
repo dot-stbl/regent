@@ -392,6 +392,11 @@ export interface Finding {
   readonly source: string;
   readonly rationale?: string;
 
+  readonly ast?: {
+    readonly nodeType: string;
+    readonly captured: Readonly<Record<string, string>>;
+  };
+
   /** Tri-state triage position. Default for non-review rules: 'violation'. */
   readonly status: FindingStatus;
 

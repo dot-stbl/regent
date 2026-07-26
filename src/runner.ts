@@ -585,6 +585,10 @@ async function scanFileContent(
             message: astRule.spec.message,
             source: astRule.source,
             rationale: astRule.spec.rationale,
+            ast: {
+              nodeType: am.nodeType,
+              captured: am.captured,
+            },
             status: 'violation',
           });
         }
