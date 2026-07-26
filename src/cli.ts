@@ -892,8 +892,11 @@ async function runList(options: ListOptions): Promise<void> {
     const nativeFlag = r.spec.needsNative === undefined
       ? ''
       : ` [needsNative: ${r.spec.needsNative.tool}/${r.spec.needsNative.analyzer}]`;
+    const reviewFlag = r.spec.review?.enabled
+      ? ` ${pc.cyan('[review]')}`
+      : '';
     const origin = formatOrigin(r.origin);
-    console.log(`${r.spec.id}\t${sev}${nativeFlag}\tast\t${origin}`);
+    console.log(`${r.spec.id}\t${sev}${nativeFlag}${reviewFlag}\tast\t${origin}`);
   }
   for (const r of loaded.transformRules) {
     const sev = severityColored(r.spec.severity, useColor);
