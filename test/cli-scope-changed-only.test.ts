@@ -268,7 +268,7 @@ describe('regent check: --scope × --changed-only intersection (issue #106)', ()
     expect(scannedFiles(r.stdout)).toBeGreaterThanOrEqual(3);
   });
 
-  it('no git repo: collectChangedFiles returns [] — graceful fallback (no findings)', async () => {
+  it('no git repo: warns and falls back to full scan (issue #162)', async () => {
     const repo = join(ROOT, 'no-git');
     mkdirSync(repo, { recursive: true });
     writeFile(
@@ -301,10 +301,13 @@ describe('regent check: --scope × --changed-only intersection (issue #106)', ()
       ],
       repo,
     );
-    // Without git, `collectChangedFiles` returns [] so the scan
-    // produces no findings (exit 0).
-    expect(r.code).toBe(0);
-    expect(findingFiles(r.stdout)).toEqual([]);
+    // Without git, fall back to full scan — the marker file is scanned
+    // and surfaces a finding. Never silent 0-file pass (#162).
+    expect(r.stderr).toMatch(/git changed-files lookup failed/i);
+    expect(r.stderr).toMatch(/falling back to full scan/i);
+    expect(scannedFiles(r.stdout)).toBeGreaterThanOrEqual(1);
+    expect(findingFiles(r.stdout)).toHaveLength(1);
+    expect(r.code).toBe(1);
   });
 
   it('--scope <dir> without --changed-only: scope narrows the scan, default changed-only still applies', async () => {
