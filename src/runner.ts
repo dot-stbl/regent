@@ -281,12 +281,23 @@ async function collectFiles(scope: RunnerScope): Promise<string[]> {
   const { cwd } = scope;
 
   if (scope.changedOnly) {
-    const changed = await collectChangedFiles(cwd, scope.diffBase);
-    // `collectChangedFiles` anchors paths at the git repo root so the
-    // caller can pass any sub-directory as `scope.cwd` (e.g. via
-    // `--scope <dir>`). When the scope is narrower than the repo
-    // root, drop anything outside the scope.
-    return filterToScope(changed, cwd);
+    try {
+      const changed = await collectChangedFiles(cwd, scope.diffBase);
+      // `collectChangedFiles` anchors paths at the git repo root so the
+      // caller can pass any sub-directory as `scope.cwd` (e.g. via
+      // `--scope <dir>`). When the scope is narrower than the repo
+      // root, drop anything outside the scope.
+      return filterToScope(changed, cwd);
+    } catch (error) {
+      // #162 — never silently scan 0 files when git is unavailable or
+      // the diff base is invalid. Warn on stderr and fall back to a
+      // full glob scan (same as `--all`), which is least surprising
+      // for non-git CI checkouts / extracted tarballs.
+      const detail = error instanceof Error ? error.message : String(error);
+      process.stderr.write(
+        `regent: git changed-files lookup failed (${detail}); falling back to full scan\n`,
+      );
+    }
   }
 
   const { glob } = await import('tinyglobby');
@@ -298,28 +309,34 @@ async function collectFiles(scope: RunnerScope): Promise<string[]> {
   });
 }
 
+/**
+ * Resolve git-changed absolute paths relative to the repo root.
+ *
+ * Throws when cwd is not a git repo, simple-git fails, or `baseRef`
+ * is not a valid revision — callers must not treat that as "zero
+ * files changed" (#162).
+ */
 async function collectChangedFiles(cwd: string, baseRef: string): Promise<string[]> {
-  try {
-    const git = simpleGit({ baseDir: cwd });
-    // Resolve the repo root so paths stay anchored there even when
-    // the caller passes a sub-directory as `cwd` (e.g. `--scope
-    // apps/web`). Without this the runner would double-prefix the
-    // scope path on every changed file.
-    const repoRoot = (await git.revparse(['--show-toplevel'])).trim();
-    const diff = await git.diff([`${baseRef}..HEAD`, '--name-only', '--no-renames']);
-    const staged = await git.diff(['--cached', '--name-only', '--no-renames']);
-    const unstaged = await git.diff(['--name-only', '--no-renames']);
-
-    const all = new Set<string>(
-      [...diff.split('\n'), ...staged.split('\n'), ...unstaged.split('\n')]
-        .filter((line) => line.trim() !== '')
-        .map((line) => join(repoRoot, line)),
-    );
-
-    return [...all];
-  } catch {
-    return [];
+  const git = simpleGit({ baseDir: cwd });
+  if (!(await git.checkIsRepo())) {
+    throw new Error('not a git repository');
   }
+  // Resolve the repo root so paths stay anchored there even when
+  // the caller passes a sub-directory as `cwd` (e.g. `--scope
+  // apps/web`). Without this the runner would double-prefix the
+  // scope path on every changed file.
+  const repoRoot = (await git.revparse(['--show-toplevel'])).trim();
+  const diff = await git.diff([`${baseRef}..HEAD`, '--name-only', '--no-renames']);
+  const staged = await git.diff(['--cached', '--name-only', '--no-renames']);
+  const unstaged = await git.diff(['--name-only', '--no-renames']);
+
+  const all = new Set<string>(
+    [...diff.split('\n'), ...staged.split('\n'), ...unstaged.split('\n')]
+      .filter((line) => line.trim() !== '')
+      .map((line) => join(repoRoot, line)),
+  );
+
+  return [...all];
 }
 
 /**
