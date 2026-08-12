@@ -4,7 +4,12 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { buildEnvConfig, loadDotEnv } from '../src/config/sources/env.js';
+import {
+  buildEnvConfig,
+  collectEnvVarNames,
+  ENV_VAR_TO_PATH,
+  loadDotEnv,
+} from '../src/config/sources/env.js';
 
 const PREFIX = 'STBL_REGENT_';
 
@@ -71,12 +76,38 @@ describe('buildEnvConfig', () => {
     expect(cfg?.cache.maxBytes).toBe(52428800);
   });
 
+  it('reads cache.maxAge as seconds converted to milliseconds', () => {
+    process.env[`${PREFIX}CACHE_MAX_AGE`] = '60';
+    const cfg = buildEnvConfig();
+    expect(cfg?.cache.maxAge).toBe(60_000);
+  });
+
+  it('reads runner.concurrency', () => {
+    process.env[`${PREFIX}RUNNER_CONCURRENCY`] = '8';
+    const cfg = buildEnvConfig();
+    expect(cfg?.runner.concurrency).toBe(8);
+  });
+
   it('reads output.color and output.contextBuffer', () => {
     process.env[`${PREFIX}OUTPUT_COLOR`] = 'false';
     process.env[`${PREFIX}OUTPUT_CONTEXT_BUFFER`] = '5';
     const cfg = buildEnvConfig();
     expect(cfg?.output.color).toBe(false);
     expect(cfg?.output.contextBuffer).toBe(5);
+  });
+
+  it('ENV_VAR_TO_PATH covers every env key that buildEnvConfig parses', () => {
+    const paths = new Map(ENV_VAR_TO_PATH);
+    expect(paths.get(`${PREFIX}CACHE_MAX_AGE`)).toBe('cache.maxAge');
+    expect(paths.get(`${PREFIX}RUNNER_CONCURRENCY`)).toBe('runner.concurrency');
+  });
+
+  it('collectEnvVarNames reports CACHE_MAX_AGE and RUNNER_CONCURRENCY when set', () => {
+    process.env[`${PREFIX}CACHE_MAX_AGE`] = '30';
+    process.env[`${PREFIX}RUNNER_CONCURRENCY`] = '2';
+    const names = collectEnvVarNames();
+    expect(names).toContain(`${PREFIX}CACHE_MAX_AGE`);
+    expect(names).toContain(`${PREFIX}RUNNER_CONCURRENCY`);
   });
 
   it('returns partial config when only some vars are set', () => {

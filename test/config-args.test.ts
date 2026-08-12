@@ -34,6 +34,10 @@ describe('buildArgsConfig', () => {
     expect(buildArgsConfig({ contextBuffer: 7 })?.output.contextBuffer).toBe(7);
   });
 
+  it('reads concurrency', () => {
+    expect(buildArgsConfig({ concurrency: 12 })?.runner.concurrency).toBe(12);
+  });
+
   it('returns partial config when only some args are set', () => {
     const cfg = buildArgsConfig({ logLevel: 'warn' });
     expect(cfg).not.toBeNull();

@@ -139,6 +139,12 @@ program
     'max in-flight file scans (overrides runner.concurrency / STBL_REGENT_RUNNER_CONCURRENCY)',
     (value) => Number.parseInt(value, 10),
   )
+  .option('--no-cache', 'disable the disk findings cache for this run')
+  .option(
+    '--context-buffer <n>',
+    'lines of context before/after each match (overrides output.contextBuffer / STBL_REGENT_OUTPUT_CONTEXT_BUFFER)',
+    (value) => Number.parseInt(value, 10),
+  )
   .option(
     '--annotate-pr <num>',
     'post each finding as a review comment on the given PR (uses `gh api`)',
@@ -1350,7 +1356,7 @@ function resolveColumns(options: { columns?: unknown }): number | undefined {
  * `CheckOptions` (which has fields that don't apply here).
  */
 function cliArgsFromOptions(
-  options: Pick<CheckOptions, 'color' | 'concurrency'>,
+  options: Pick<CheckOptions, 'color' | 'concurrency' | 'cache' | 'contextBuffer'>,
 ): {
   logLevel?: string;
   logFormat?: string;
@@ -1369,6 +1375,12 @@ function cliArgsFromOptions(
   } = {};
   if (options.color !== undefined) {
     out.color = options.color;
+  }
+  if (options.cache !== undefined) {
+    out.cache = options.cache;
+  }
+  if (options.contextBuffer !== undefined) {
+    out.contextBuffer = options.contextBuffer;
   }
   if (options.concurrency !== undefined) {
     out.concurrency = options.concurrency;
@@ -1438,6 +1450,8 @@ interface CheckOptions {
   color?: boolean;
   review?: boolean;
   concurrency?: number;
+  cache?: boolean;
+  contextBuffer?: number;
   stream?: boolean;
   watch?: boolean;
   columns?: number;

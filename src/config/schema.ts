@@ -344,11 +344,10 @@ const RulesSectionSchema = z
      * references are an error at load time; default `{}` means
      * "all parameterised rules resolve with their schema defaults".
      *
-     * Strict on shape: unknown rule ids with non-empty values are
-     * rejected with a clear message; unknown rule ids with empty
-     * values are silently ignored (lets projects roll out the
-     * feature gradually without false-positive drift noise).
-     */
+      * Strict on shape: unknown rule ids are rejected at load time by
+      * `validateConfigureKeys` (typos fail fast). Values that fail a
+      * rule's own `params` schema are also hard errors.
+      */
     configure: z.record(z.string().min(1), z.unknown()).default({}),
     accept: z.array(AcceptEntrySchema).readonly().default([]),
   })

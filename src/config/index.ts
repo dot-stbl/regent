@@ -247,6 +247,7 @@ function collectArgNames(args: CliArgs): readonly string[] {
   if (args.color !== undefined) names.push('--no-color / --color');
   if (args.cache !== undefined) names.push('--no-cache');
   if (args.contextBuffer !== undefined) names.push('--context-buffer');
+  if (args.concurrency !== undefined) names.push('--concurrency');
   return names;
 }
 

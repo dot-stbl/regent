@@ -258,6 +258,8 @@ export async function loadLocalConfigLayer(cwd: string): Promise<LoadedConfigLay
       '.mjs': loadJsLike,
       '.cjs': loadJsLike,
       '.json': loadJson,
+      '.yaml': loadYamlLike,
+      '.yml': loadYamlLike,
     },
     cache: false,
   });
