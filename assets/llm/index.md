@@ -54,7 +54,8 @@ their context.
 ## Key design constraints (memorise these)
 
 - TS-first authoring surface — agents write `.lint.ts` / `.fix.ts`
-  files. No YAML/JSON config in v0.2.
+  files. Project config also supports `.regentrc.{yaml,yml,json}` via
+  cosmiconfig (and `.regentrc.local.*` for per-developer overrides).
 - RE2 syntax only — no backreferences, no lookbehind, no lookaround.
   Use `excludeWhen` (positive match inversion) for "X but not Y".
 - Per-line patterns — multi-line regex not supported. Compose

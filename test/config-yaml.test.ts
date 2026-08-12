@@ -4,7 +4,7 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { loadProjectConfig } from '../src/config/sources/file.js';
+import { loadLocalConfig, loadProjectConfig } from '../src/config/sources/file.js';
 
 let cwd = '';
 
@@ -14,6 +14,42 @@ beforeEach(() => {
 
 afterEach(() => {
   rmSync(cwd, { recursive: true, force: true });
+});
+
+describe('YAML local config', () => {
+  it('loads a detect rule from .regentrc.local.yaml', async () => {
+    writeFileSync(
+      join(cwd, '.regentrc.local.yaml'),
+      `# Local override (gitignored)
+rules:
+  detect:
+    - id: yaml.local-mute
+      severity: suggestion
+      pattern: LOCAL
+      globs:
+        - "**/*.ts"
+      message: local-only rule
+`,
+    );
+
+    const config = await loadLocalConfig(cwd);
+
+    expect(config?.rules.detect).toHaveLength(1);
+    expect(config?.rules.detect[0]?.id).toBe('yaml.local-mute');
+  });
+
+  it('loads .regentrc.local.yml via the same YAML loader', async () => {
+    writeFileSync(
+      join(cwd, '.regentrc.local.yml'),
+      `cache:
+  enabled: false
+`,
+    );
+
+    const config = await loadLocalConfig(cwd);
+
+    expect(config?.cache.enabled).toBe(false);
+  });
 });
 
 describe('YAML project config', () => {

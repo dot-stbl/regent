@@ -136,9 +136,10 @@ export default {
 
 Values are validated against the rule's `params` schema at load
 time; missing keys default to the schema's own `.default()`. An
-unknown rule id in `configure` is silently ignored (so projects can
-roll out the feature gradually); a value that fails the schema is a
-hard load-time error with the path into the value.
+unknown rule id in `configure` is a hard load-time error via
+`validateConfigureKeys` (typos fail fast — drop the entry, fix the
+id, or add the rule); a value that fails the schema is also a hard
+load-time error with the path into the value.
 
 ### Introspection
 

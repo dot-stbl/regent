@@ -138,6 +138,52 @@ describe('showField', () => {
     }
   });
 
+  it('attributes cache.maxAge and runner.concurrency to env provenance', async () => {
+    process.env[`${STBL_PREFIX}CACHE_MAX_AGE`] = '90';
+    process.env[`${STBL_PREFIX}RUNNER_CONCURRENCY`] = '6';
+    const result = await loadConfig({ cwd: REPO });
+
+    const envLayer = result.layers.find((layer) => layer.id === 'env');
+    expect(envLayer?.envVars).toEqual(
+      expect.arrayContaining([
+        `${STBL_PREFIX}CACHE_MAX_AGE`,
+        `${STBL_PREFIX}RUNNER_CONCURRENCY`,
+      ]),
+    );
+
+    const maxAge = showField(result, 'cache.maxAge');
+    expect('path' in maxAge).toBe(true);
+    if ('path' in maxAge) {
+      expect(maxAge.merged).toBe(90_000);
+      const envEntry = maxAge.perLayer.find((layer) => layer.id === 'env');
+      expect(envEntry?.loaded).toBe(true);
+      expect(envEntry?.value).toBe(90_000);
+    }
+
+    const concurrency = showField(result, 'runner.concurrency');
+    expect('path' in concurrency).toBe(true);
+    if ('path' in concurrency) {
+      expect(concurrency.merged).toBe(6);
+      const envEntry = concurrency.perLayer.find((layer) => layer.id === 'env');
+      expect(envEntry?.loaded).toBe(true);
+      expect(envEntry?.value).toBe(6);
+    }
+  });
+
+  it('attributes --concurrency to the args layer provenance', async () => {
+    const result = await loadConfig({
+      cwd: REPO,
+      args: { concurrency: 9, cache: false, contextBuffer: 4 },
+    });
+    const argsLayer = result.layers.find((layer) => layer.id === 'args');
+    expect(argsLayer?.args).toEqual(
+      expect.arrayContaining(['--concurrency', '--no-cache', '--context-buffer']),
+    );
+    expect(result.config.runner.concurrency).toBe(9);
+    expect(result.config.cache.enabled).toBe(false);
+    expect(result.config.output.contextBuffer).toBe(4);
+  });
+
   it('returns error for empty path', async () => {
     const result = await loadConfig({ cwd: REPO });
     const show = showField(result, '');

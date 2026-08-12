@@ -207,8 +207,10 @@ export const ENV_VAR_TO_PATH: ReadonlyArray<readonly [string, string]> = [
   [`${PREFIX}LOG_FORMAT`, 'log.format'],
   [`${PREFIX}CACHE_ENABLED`, 'cache.enabled'],
   [`${PREFIX}CACHE_MAX_BYTES`, 'cache.maxBytes'],
+  [`${PREFIX}CACHE_MAX_AGE`, 'cache.maxAge'],
   [`${PREFIX}OUTPUT_COLOR`, 'output.color'],
   [`${PREFIX}OUTPUT_CONTEXT_BUFFER`, 'output.contextBuffer'],
+  [`${PREFIX}RUNNER_CONCURRENCY`, 'runner.concurrency'],
 ];
 
 /**
