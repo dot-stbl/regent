@@ -3,8 +3,6 @@ import { isAbsolute, relative, resolve } from 'node:path';
 
 import type { Finding } from '../types.js';
 
-void relative;
-
 interface CommandResult {
   readonly code: number;
   readonly stdout: string;
@@ -12,10 +10,15 @@ interface CommandResult {
   readonly missing?: boolean;
 }
 
+export interface AnnotationCommandOptions {
+  readonly stdin?: string;
+}
+
 export type AnnotationCommandRunner = (
   command: string,
   args: readonly string[],
   cwd: string,
+  options?: AnnotationCommandOptions,
 ) => Promise<CommandResult>;
 
 export interface AnnotatePrOptions {
@@ -23,13 +26,22 @@ export interface AnnotatePrOptions {
   readonly runCommand?: AnnotationCommandRunner;
 }
 
+interface PullFile {
+  readonly filename: string;
+  readonly status: string;
+  readonly patch?: string | null;
+}
+
+/** Right-side (new-file) line numbers that appear in the PR diff, keyed by path. */
+export type DiffLineIndex = ReadonlyMap<string, ReadonlySet<number>>;
+
 export async function annotateFindings(
   prNumber: number,
   findings: readonly Finding[],
   options: AnnotatePrOptions = {},
 ): Promise<number> {
   if (findings.length === 0) {
-    writeSummary(0, 0, 0);
+    writeSummary(0, 0, 0, 0);
     return 0;
   }
   if (!Number.isInteger(prNumber) || prNumber < 1) {
@@ -63,6 +75,31 @@ export async function annotateFindings(
     return 2;
   }
 
+  const files = await runCommand(
+    'gh',
+    [
+      'api',
+      `repos/{owner}/{repo}/pulls/${String(prNumber)}/files`,
+      '--paginate',
+    ],
+    cwd,
+  );
+  if (files.code !== 0) {
+    process.stderr.write(
+      `regent: could not read PR #${String(prNumber)} changed files${formatCommandError(files)}.\n`,
+    );
+    return 2;
+  }
+
+  const diffLines = parsePullFiles(files.stdout);
+  if (diffLines.size === 0) {
+    process.stderr.write(
+      `regent: PR #${String(prNumber)} has no annotatable diff lines (empty or binary-only changes).\n`,
+    );
+    writeSummary(0, 0, findings.length, 0);
+    return 0;
+  }
+
   const comments = await runCommand(
     'gh',
     [
@@ -81,7 +118,8 @@ export async function annotateFindings(
 
   const commitId = pull.stdout.trim();
   let posted = 0;
-  let skipped = 0;
+  let skippedDuplicates = 0;
+  let skippedOutOfDiff = 0;
   let failed = 0;
   let existingBodies = comments.stdout;
 
@@ -89,12 +127,25 @@ export async function annotateFindings(
     const path = annotationPath(finding.path, cwd);
     const line = finding.match.startLine + 1;
     const marker = annotationMarker(finding.ruleId, path, line);
+
     if (existingBodies.includes(marker)) {
-      skipped++;
+      skippedDuplicates++;
+      continue;
+    }
+
+    if (!isOnDiff(diffLines, path, line)) {
+      skippedOutOfDiff++;
       continue;
     }
 
     const body = annotationBody(finding, marker);
+    const payload = JSON.stringify({
+      body,
+      commit_id: commitId,
+      path,
+      line,
+      side: 'RIGHT',
+    });
     const result = await runCommand(
       'gh',
       [
@@ -102,29 +153,133 @@ export async function annotateFindings(
         `repos/{owner}/{repo}/pulls/${String(prNumber)}/comments`,
         '--method',
         'POST',
-        '-f',
-        `body=${body}`,
-        '-f',
-        `commit_id=${commitId}`,
-        '-f',
-        `path=${path}`,
-        '-F',
-        `line=${String(line)}`,
-        '-f',
-        'side=RIGHT',
+        '--input',
+        '-',
       ],
       cwd,
+      { stdin: payload },
     );
     if (result.code === 0) {
       posted++;
       existingBodies += `\n${marker}`;
     } else {
       failed++;
+      const detail = result.stderr.trim() === ''
+        ? `exit ${String(result.code)}`
+        : result.stderr.trim();
+      process.stderr.write(
+        `regent: failed to annotate ${path}:${String(line)} (${finding.ruleId}): ${detail}\n`,
+      );
     }
   }
 
-  writeSummary(posted, skipped, failed);
+  writeSummary(posted, skippedDuplicates, skippedOutOfDiff, failed);
   return failed === 0 ? 0 : 1;
+}
+
+/** Parse GitHub pull-files JSON into a path → right-side line set index. */
+export function parsePullFiles(raw: string): DiffLineIndex {
+  const trimmed = raw.trim();
+  if (trimmed === '') {
+    return new Map();
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed) as unknown;
+  } catch {
+    return new Map();
+  }
+
+  const files = normalizePullFiles(parsed);
+  const index = new Map<string, Set<number>>();
+
+  for (const file of files) {
+    if (file.status === 'removed') {
+      continue;
+    }
+    const path = file.filename.replaceAll('\\', '/');
+    const lines = parsePatchRightLines(file.patch ?? undefined);
+    if (lines.size === 0) {
+      // No patch (binary / too large): skip — GitHub will 422 any line comment.
+      continue;
+    }
+    const existing = index.get(path);
+    if (existing === undefined) {
+      index.set(path, lines);
+    } else {
+      for (const line of lines) {
+        existing.add(line);
+      }
+    }
+  }
+
+  return index;
+}
+
+/** Extract right-side (new-file) line numbers from a unified diff patch. */
+export function parsePatchRightLines(patch: string | undefined): Set<number> {
+  const lines = new Set<number>();
+  if (patch === undefined || patch === '') {
+    return lines;
+  }
+
+  let newLine = 0;
+  for (const rawLine of patch.split('\n')) {
+    if (rawLine.startsWith('@@')) {
+      const match = /@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(rawLine);
+      if (match?.[1] === undefined) {
+        newLine = 0;
+        continue;
+      }
+      newLine = Number.parseInt(match[1], 10);
+      continue;
+    }
+    if (newLine === 0) {
+      continue;
+    }
+    if (rawLine.startsWith('+')) {
+      lines.add(newLine);
+      newLine += 1;
+      continue;
+    }
+    if (rawLine.startsWith('-')) {
+      continue;
+    }
+    if (rawLine.startsWith('\\')) {
+      // "\ No newline at end of file"
+      continue;
+    }
+    // Context line (leading space) or empty hunk line.
+    lines.add(newLine);
+    newLine += 1;
+  }
+
+  return lines;
+}
+
+function normalizePullFiles(parsed: unknown): PullFile[] {
+  if (Array.isArray(parsed)) {
+    return parsed.filter(isPullFile);
+  }
+  // --paginate can yield concatenated arrays in some gh versions; also accept a single object.
+  if (isPullFile(parsed)) {
+    return [parsed];
+  }
+  return [];
+}
+
+function isPullFile(value: unknown): value is PullFile {
+  if (value === null || typeof value !== 'object') {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  return typeof record.filename === 'string' && typeof record.status === 'string';
+}
+
+function isOnDiff(diffLines: DiffLineIndex, path: string, line: number): boolean {
+  const lines = diffLines.get(path);
+  return lines !== undefined && lines.has(line);
 }
 
 function annotationBody(finding: Finding, marker: string): string {
@@ -155,9 +310,14 @@ function annotationPath(path: string, cwd: string): string {
   return repoRelative.replaceAll('\\', '/').replace(/^\.\//, '');
 }
 
-function writeSummary(posted: number, skipped: number, failed: number): void {
+function writeSummary(
+  posted: number,
+  skippedDuplicates: number,
+  skippedOutOfDiff: number,
+  failed: number,
+): void {
   process.stderr.write(
-    `posted ${String(posted)}, skipped ${String(skipped)} (duplicates), failed ${String(failed)}\n`,
+    `posted ${String(posted)}, skipped ${String(skippedDuplicates)} (duplicates), out-of-diff ${String(skippedOutOfDiff)}, failed ${String(failed)}\n`,
   );
 }
 
@@ -166,9 +326,18 @@ function formatCommandError(result: CommandResult): string {
   return message === '' ? '' : `: ${message}`;
 }
 
-function runProcess(command: string, args: readonly string[], cwd: string): Promise<CommandResult> {
+function runProcess(
+  command: string,
+  args: readonly string[],
+  cwd: string,
+  options: AnnotationCommandOptions = {},
+): Promise<CommandResult> {
   return new Promise((complete) => {
-    const child = spawn(command, [...args], { cwd, windowsHide: true });
+    const child = spawn(command, [...args], {
+      cwd,
+      windowsHide: true,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
     const stdout: Buffer[] = [];
     const stderr: Buffer[] = [];
     child.stdout.on('data', (chunk: Buffer) => stdout.push(chunk));
@@ -188,5 +357,11 @@ function runProcess(command: string, args: readonly string[], cwd: string): Prom
         stderr: Buffer.concat(stderr).toString('utf8'),
       });
     });
+    if (child.stdin !== null) {
+      if (options.stdin !== undefined) {
+        child.stdin.write(options.stdin);
+      }
+      child.stdin.end();
+    }
   });
 }
