@@ -262,7 +262,7 @@ describe('regent check: --scope × --changed-only intersection (issue #106)', ()
       ],
       repo,
     );
-    expect(r.stderr).toContain('--changed-only conflicts with --all');
+    expect(r.stderr).toContain('--changed-only/--diff conflicts with --all');
     // `--all` overrides — both baseline files AND the changed file
     // are scanned (≥ 3 files total).
     expect(scannedFiles(r.stdout)).toBeGreaterThanOrEqual(3);

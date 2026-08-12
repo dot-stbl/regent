@@ -118,7 +118,11 @@ program
     '--changed-only',
     'restrict scan to git-changed files within the scope (default when --all is absent; warns + falls back to --all when both flags are set)',
   )
-  .option('--diff-base <ref>', 'git diff base', 'HEAD')
+  .option(
+    '--diff [ref]',
+    'scan git-changed files only (pre-commit / lint-staged friendly); optional ref sets the diff base (default HEAD). Alias of --changed-only + --diff-base',
+  )
+  .option('--diff-base <ref>', 'git diff base (default HEAD); prefer --diff [ref] for new scripts', 'HEAD')
   .option('--format <fmt>', 'output format: text|json|sarif|html|both', 'text')
   .option('--out <file>', 'write to file instead of stdout')
   .option('--exit-on <severity>', 'fail if findings at or above this severity', 'error')
@@ -408,6 +412,35 @@ program
     await flushAndExit(2);
   });
 
+/**
+ * Resolve `--diff [ref]` vs `--changed-only` / `--diff-base`.
+ *
+ * `--diff` is the pre-commit-friendly form: enables changed-only scan
+ * and optionally sets the git base. `--diff-base` stays for back-compat
+ * when used without `--diff`.
+ *
+ * Commander optional arg semantics:
+ *   absent            → undefined
+ *   `--diff` alone    → true
+ *   `--diff HEAD~1`   → 'HEAD~1'
+ */
+function resolveCheckDiffFlags(options: CheckOptions): {
+  changedOnly: boolean;
+  diffBase: string;
+  diffRequested: boolean;
+} {
+  const diffFlag = options.diff;
+  const diffRequested = diffFlag !== undefined && diffFlag !== false;
+  const diffBase =
+    typeof diffFlag === 'string' && diffFlag.length > 0
+      ? diffFlag
+      : (options.diffBase ?? 'HEAD');
+  // Explicit changed-only request: --diff or --changed-only.
+  // Default (no --all) is still changed-only in runCheck.
+  const changedOnly = diffRequested || options.changedOnly === true;
+  return { changedOnly, diffBase, diffRequested };
+}
+
 async function runCheck(options: CheckOptions): Promise<number> {
   const cwd = process.cwd();
   // `--scope <dir>` narrows the runner's scan root while the config
@@ -417,22 +450,23 @@ async function runCheck(options: CheckOptions): Promise<number> {
   const useColor = shouldUseColor(options);
   const hideReview = options.review === false;
   const columns = resolveColumns(options);
+  const { changedOnly: explicitChangedOnly, diffBase } = resolveCheckDiffFlags(options);
 
-  // `--changed-only` + `--all` are contradictory — warn and let
+  // `--changed-only` / `--diff` + `--all` are contradictory — warn and let
   // `--all` win (it was the long-standing escape hatch).
-  if (options.changedOnly === true && options.all) {
+  if (explicitChangedOnly && options.all) {
     getLogger().warn(
       {},
-      '--changed-only conflicts with --all — falling back to --all (scanning every file)',
+      '--changed-only/--diff conflicts with --all — falling back to --all (scanning every file)',
     );
   }
 
   // The runner's `changedOnly` is `true` whenever the user did NOT
-  // ask for every file: the default behavior, OR `--changed-only`
-  // set explicitly with no `--all` override.
+  // ask for every file: the default behavior, OR `--changed-only` /
+  // `--diff` set explicitly with no `--all` override.
   const scopeChangedOnly = options.all
     ? false
-    : options.changedOnly === true || !options.all;
+    : explicitChangedOnly || !options.all;
 
   // Non-blocking update hint — fires the registry lookup in parallel
   // with the rule load, prints to stderr (one dim line) if a newer
@@ -505,7 +539,7 @@ async function runCheck(options: CheckOptions): Promise<number> {
       '**/.git/**',
     ],
     changedOnly: scopeChangedOnly,
-    diffBase: options.diffBase as string,
+    diffBase,
   };
 
   const contextBuffer = loadedRules.resolvedConfig.output.contextBuffer;
@@ -1428,6 +1462,8 @@ interface CheckOptions {
   scope?: string;
   all?: string;
   changedOnly?: boolean;
+  /** Commander optional: true when bare `--diff`, string when `--diff <ref>`. */
+  diff?: boolean | string;
   diffBase?: string;
   format?: string;
   out?: string;
