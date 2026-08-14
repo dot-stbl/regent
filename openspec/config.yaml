@@ -1,0 +1,69 @@
+schema: spec-driven
+
+# Shown to AI when creating OpenSpec artifacts for this repo.
+context: |
+  Project: @dot-stbl/regent (npm package + CLI `regent`)
+  Domain: multi-mode static analysis framework for LLM agents
+  Runtime: Node.js ≥ 20 (Bun recommended for dev); TypeScript ESM
+  Package manager: bun (lockfile bun.lock); never npm/pnpm for this repo
+  Repo: https://github.com/dot-stbl/regent
+  License: MIT
+  Published version: see npm @dot-stbl/regent (package.json may lag tags)
+
+  Architecture (high level):
+  - Zero bundled rules by default — users/agents author rules
+  - Rule kinds: detect (.lint.ts), fix attachment on detect, transform (.transform.ts),
+    format/delegate (native tool wrappers: eslint, dotnet format, …)
+  - Matching: RE2 (re2-wasm) per-line regex + AST via @ast-grep/napi language packs
+    (csharp, typescript, rust, go)
+  - Pipeline: loadRules → runRules (check) / applyFixes (fix) → reporters
+    (text, json, sarif, html)
+  - Config layers: defaults → ~/.config/regent → .regentrc.* → .regentrc.local.*
+    → STBL_REGENT_* env → CLI
+  - Agent contract: `regent llm` multi-page docs under assets/llm/
+
+  Source layout:
+  - src/cli.ts + src/cli/* — commander CLI
+  - src/loader.ts, src/runner.ts, src/fixer.ts — core engines
+  - src/kinds/* — defineDetectRule / defineAstRule / defineFixRule / format / delegate
+  - src/ast/matcher.ts — ast-grep integration
+  - src/config/* — cosmiconfig + Zod
+  - src/core/* — cache, dag, diff, benchmark, scanner
+  - src/reporter/* — text / json / sarif / review / fix-schema
+  - examples/<lang>/* — shipped example rules (NOT auto-loaded)
+  - assets/llm/* — agent skill docs for `regent llm`
+  - skills/regent — Agent Skill for Claude/opencode
+  - docs/ — human docs (architecture, CLI, rules, migrating-from-*)
+
+  Conventions:
+  - Commit format: [.stbl](feat/<area>): <subject> (see ~/.agents/rules/process/commit-format.md)
+  - Work tracking: GitHub Issues in dot-stbl/regent only (AGENTS.md)
+  - Never run long-lived dev/watch/serve processes from agents
+  - Gates before done: bun run typecheck && bun run lint && bun run test && bun run build
+  - No secrets in logs (safeLog redacts matchText/pattern/path)
+
+  Product positioning:
+  - Not a replacement for eslint/dotnet format/ruff — delegates to them when useful
+  - Sweet spot: house rules / multi-language conventions no native analyzer covers
+  - First-class consumers: LLM coding agents (machine-readable findings, fix JSON v1)
+
+rules:
+  proposal:
+    - Keep proposals under 500 words
+    - Always include a Non-goals section
+    - Reference GitHub issue number when one exists (Refs: #N)
+  specs:
+    - Requirements must be testable (scenario Given/When/Then where useful)
+    - Prefer one capability per spec file under openspec/specs/
+  tasks:
+    - Break tasks into chunks of max ~2 hours
+    - Mark acceptance checks that map to bun run typecheck/lint/test
+
+operations:
+  apply:
+    guidance:
+      - Run bun run typecheck && bun run lint && bun run test before marking apply done
+      - Do not start long-lived dev servers
+  archive:
+    guidance:
+      - Summarize outcome and link the landing commit/PR SHA
