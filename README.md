@@ -1,8 +1,5 @@
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/header-dark.svg">
-    <img alt="regent by .stbl" src="assets/header-light.svg">
-  </picture>
+  <img alt="regent by .stbl" src="assets/banner-dither.png" width="1200">
 </p>
 
 <p align="right">
